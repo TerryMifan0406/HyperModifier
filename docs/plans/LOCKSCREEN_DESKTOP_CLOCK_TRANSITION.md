@@ -633,3 +633,61 @@ v9 交付构建：`:app:assembleRelease :app:test` 成功（2m8s），415 项 JV
 `HyperModifier-v1.5.2-clock-mvp-v9.apk`，SHA256：
 `4014620c3776b90c530aa4a87804c2c41b8b76461650805034d74d1ef82f49f4`。
 新 APK 未安装到手机；用户已明确授权通过飞书 CLI 向本人交付测试包及说明。
+
+## v10 字形改用原生字体轴（2026-10-21）
+
+用户先反馈 v9 无效果，随后确认可以播放；当前只读 SystemUI dump 已看到
+shown=7 / handoffs=7 / closed:mvp-complete，第一页 epoch 31->32、目标跳过
+计数 22->24。这证明该次触发链路已运行，不证明视觉无缝；activation-alpha
+0.34439826，handoff-delay 34ms，窗口 preparation 8ms，以上仅单次现场记录。
+本轮不安装、重启或操作手机。
+
+用户要求复用“按宽高比调整字体”的原生方法，并明确确认：终点参数按桌面匹配，
+不沿用封面时钟的设置值。v9 用两个不同的 RenderNode 缩放值匹配矩形，现已
+移除这条非等比拉伸路径。轨迹始终 scaleX==scaleY。字形由现有
+HyperMusicCoverFontShapePolicy.solve 搜索 wdth / HGHT 轴，在轴范围 10..100
+内选最接近的形态；以原生 00 字形测量，配合 textSizePx 保持数字宽度。
+字体达不到目标比例时等比内接目标区域，保留留白，不能硬拉伸补齐。
+
+ClockMvpFontMorph 仅持有本次副本。终点比例由原字形并集和当前桌面时间框
+计算，小时/分钟分别重新排字。保持每个部分原墨迹中心，补偿字形 bearing、
+baseline 与冒号 advance 的变化；最终用实际新墨迹并集计算等比缩放和终点
+平移。矩形仅用于布局，不用于拉扁笔画。源控件及封面时钟设置均不修改。
+
+### 性能与生命周期
+
+原生字体测量与 17 个布局采样点在独立后台 worker 上准备，不在 GoingAway
+主线程做搜索。与 TextMeasureUtils.applyFontVariation 使用相同的 Paint
+setFontVariationOverride（或 setCustomVariationOverride）后端，但使用独立的
+Paint/Path；不能直接在后台调用该工具方法，它的静态轴/字符串缓存属于共享
+绘制状态，有跨线程竞争风险。端点解保留一个弱 Typeface 缓存项，key 包含
+weight / width / requested ratio；实际文字、字号与位置每次重新准备。
+工作线程最多 1 个执行、1 个排队，空闲 5 秒退出；过载放弃当前候选，旧会话
+计算结果根据 candidate 身份丢弃，不在后台访问或修改 View。
+
+首次可见帧和源交接不等待字体 worker。若数据暂未完成，副本短暂保持起点，
+数据发布到主线程后只启动一次形变轨迹；避免慢准备使原字形先淡完而整次跳过。
+仍受原 1.5 秒会话 watchdog 约束。原生字体工作完成不允许已关闭会话重新出现。
+取消时移除 ValueAnimator 更新及结束监听器，再取消 animator、移除窗口、恢复
+源透明度租约；源字体从未被更改。
+
+每帧只插值轴、字号、绘制偏移与预先采样的布局，用缓存的 typed MethodHandle
+写副本 float 字段，不用反射调用、装箱、IPC、搜索或模块 Path 测量。更新副本
+会 invalidate，继续走系统 TimeView 的原生可变字体和玻璃绘制。与 v9 仅移动
+RenderNode 相比，这会增加 TimeView 字形重绘；系统内部仍可能构造轴字符串、
+反射设置 Paint、更新 Path 和玻璃裁剪。这是本轮新增的实际热点，不能把模块
+回调无分配误称为整帧无分配。没有 Perfetto/FrameTimeline/分配或功耗对照，
+不声称性能改善；新增 font-preparation-ms 和轴/等比 scale 诊断用于后续核对。
+
+本轮不新增 Hook，仍 SystemUI 10 个、桌面 3 个；第一页/目标身份门控沿用 v9。
+
+v10 交付验证：最终 `:app:assembleRelease :app:test` 成功（1m55s），419 项
+JVM 测试 0 失败/错误/跳过；SystemUI 静态契约 51 项通过。新增回归验证形变后
+墨迹的等比定位、字体轴不可达时保留比例、窗口原点和 typed float setter 的
+接收者隔离/ABI 拒绝。当前拉取框架确认 Paint.setFontVariationOverride(String)V，
+其内部会解析轴列表并创建 native builder，故字体重绘成本需要后续真机实测。
+Release v2 签名通过，`HyperModifier-v1.5.2-clock-native-font-v10.apk` SHA256：
+`7894a504df3db8a53816c64f8cebe091bf255a8631374d3da6c04a0cd93f059c`。
+手机本轮仅只读 devices、logcat 和 SystemUI dumpsys；未安装或重启。用户确认
+v9 可播放，但 v10 字体轴形变尚未经手机视觉/生命周期/性能验收。桌面原生代码
+未变化，已有 v9 桌面进程可复用；安装 v10 后手动重启 SystemUI 加载新 Java 代码。

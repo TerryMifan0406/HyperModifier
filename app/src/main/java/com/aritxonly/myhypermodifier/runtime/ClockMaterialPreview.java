@@ -1,5 +1,8 @@
 package com.aritxonly.myhypermodifier;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.Canvas;
@@ -96,6 +99,7 @@ final class ClockMaterialPreview {
                     clocks.get(0).getResources().getDisplayMetrics().densityDpi);
             if (motion == null) { state = "skip:uncalibrated-display-or-ink"; return; }
             Candidate value = new Candidate(context, clocks.get(0).getDisplay(), parts, sources, motion);
+            value.sourceInk = new ClockMvpGeometry.Box(sourceInk.left, sourceInk.top, sourceInk.right, sourceInk.bottom);
             candidate = value; targetStatus = "not-seen"; lastResult = "sampling-radius=" + parts.get(0).blurRadius();
             state = "prepared:native-views=" + parts.size();
             MAIN.postDelayed(value.timeout, 1500L); // Bounded preparation watchdog, no polling.
@@ -161,7 +165,7 @@ final class ClockMaterialPreview {
                 + " exit-after-handoff-ms=" + (SystemClock.uptimeMillis() - value.handoffAt)
                 + " preparation-ms=" + value.preparationCost
                 + " prepared-before-remote-ms=" + (value.remoteAt - value.preparedAt)
-                + " activation-alpha=" + value.activationAlpha;
+                + " activation-alpha=" + value.activationAlpha + " " + value.fontShape;
         finishAtTarget(value);
     }
 
@@ -199,7 +203,8 @@ final class ClockMaterialPreview {
             value.handoffAt = SystemClock.uptimeMillis();
             state = "handed-off:first-frame-committed";
             lastResult = "handoff-delay-ms=" + (value.handoffAt - value.remoteAt);
-            value.root.startMotion();
+            if (value.fonts != null) value.root.startMotion();
+            else state = "handed-off:awaiting-native-font";
         } catch (ReflectiveOperationException | RuntimeException error) {
             close("handoff-" + failure(error));
         }
@@ -248,11 +253,48 @@ final class ClockMaterialPreview {
             params.setFitInsetsTypes(0);
             params.setTitle("MHM clock material experiment");
             value.manager.addView(value.root, params);
+            if (!ClockMvpFontMorph.prepare(() -> prepareFonts(value, reader, replicas)))
+                throw new IllegalStateException("font-worker-busy");
             value.preparedAt = SystemClock.uptimeMillis();
             value.preparationCost = value.preparedAt - start;
             if (!value.shown) state = "window-prepared:awaiting-attach";
             // One preparation/session watchdog also bounds a missing commit or exit callback.
         } catch (ReflectiveOperationException | RuntimeException error) { close("window-" + failure(error)); }
+    }
+
+    private static void prepareFonts(Candidate value, Factory reader, List<Part> replicas) {
+        if (candidate != value) return;
+        long start = SystemClock.uptimeMillis();
+        try {
+            List<ClockMvpFontMorph> fonts = new ArrayList<>(replicas.size());
+            RectF ink = new RectF();
+            float ratio = ClockMvpGeometry.fontRatioMultiplier(value.sourceInk);
+            for (int i = 0; i < replicas.size(); i++) {
+                if (candidate != value) return;
+                CopiedPart part = value.parts.get(i);
+                // No View reads or writes here: only immutable copied parameters,
+                // independent Paint/Path and cached native metadata.
+                ClockMvpFontMorph font = new ClockMvpFontMorph(replicas.get(i).replica(), reader.fontAccess,
+                        part.values(), part.paint(), part.screenMatrix(), ratio);
+                fonts.add(font); ink.union(font.endInk);
+            }
+            ClockMvpGeometry.Plan motion = ClockMvpGeometry.plan(value.sourceInk,
+                    new ClockMvpGeometry.Box(ink.left, ink.top, ink.right, ink.bottom),
+                    ClockMvpGeometry.WIDTH, ClockMvpGeometry.HEIGHT, ClockMvpGeometry.DENSITY);
+            if (motion == null) throw new IllegalArgumentException("shaped-target");
+            long cost = SystemClock.uptimeMillis() - start;
+            MAIN.post(() -> {
+                if (candidate != value || value.root == null) return;
+                value.fonts = fonts; value.motion = motion;
+                value.fontShape = "native-wdth=" + fonts.get(0).targetWidth + " HGHT=" + fonts.get(0).targetHeight
+                        + " reachable-ratio=" + fonts.get(0).reachableRatio + " uniform-scale=" + motion.scale()
+                        + " font-preparation-ms=" + cost;
+                lastResult += " " + value.fontShape;
+                if (value.handedOff) value.root.startMotion();
+            });
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            MAIN.post(() -> { if (candidate == value) close("font-prepare-" + failure(error)); });
+        }
     }
 
     private static String failure(Throwable error) {
@@ -269,7 +311,10 @@ final class ClockMaterialPreview {
                     value.root.disarm();
                     value.root.setVisibility(View.GONE);
                     value.root.animate().cancel();
-                    value.root.layer.animate().cancel();
+                    if (value.motionAnimator != null) {
+                        value.motionAnimator.removeAllUpdateListeners(); value.motionAnimator.removeAllListeners();
+                        value.motionAnimator.cancel();
+                    }
                     try { if (value.root.getParent() != null) value.manager.removeViewImmediate(value.root); }
                     catch (RuntimeException error) {
                         // Make it invisible first; request normal removal if immediate removal was refused.
@@ -304,14 +349,18 @@ final class ClockMaterialPreview {
         final List<CopiedPart> parts;
         final List<WeakReference<View>> sources;
         final int rotation;
-        final ClockMvpGeometry.Plan motion;
+        ClockMvpGeometry.Plan motion;
+        ClockMvpGeometry.Box sourceInk;
+        ValueAnimator motionAnimator;
+        String fontShape = "not-prepared";
+        List<ClockMvpFontMorph> fonts;
         final long created = SystemClock.uptimeMillis();
         WindowManager manager;
         volatile boolean home, shown;
         volatile long remoteAt;
         long handoffAt, preparedAt, preparationCost;
         float activationAlpha;
-        boolean handedOff, exitFinished, fading, activationRequested, arrived, pageApproved;
+        boolean handedOff, exitFinished, fading, activationRequested, arrived, pageApproved, motionStarted;
         volatile ClockMvpPagePolicy.Snapshot pageBefore;
         final AtomicBoolean pageQueryRequested = new AtomicBoolean();
         final Runnable committed = () -> MAIN.post(() -> handoff(this));
@@ -332,6 +381,7 @@ final class ClockMaterialPreview {
 
     private static final class Factory {
         final Constructor<?> constructor;
+        final ClockMvpFontMorph.Access fontAccess;
         final ClockTransitionAlphaLease.Access<View> transitionAlpha;
         final Field paint, glass, data, style, transparency, passEnabled, textPath, colonPath, minutePath;
         final Method chooseContainer, passWindow, backgroundMode, glassRadius, excludeBelow;
@@ -341,6 +391,7 @@ final class ClockMaterialPreview {
         Factory(ClassLoader loader) throws ReflectiveOperationException {
             Class<?> time = Class.forName("com.miui.clock.allInOne.TimeView", false, loader);
             constructor = time.getConstructor(Context.class);
+            fontAccess = new ClockMvpFontMorph.Access(time);
             passEnabled = field(View.class, "mNeedPassWindowBlur");
             Method getAlpha = View.class.getDeclaredMethod("getTransitionAlpha");
             Method setAlpha = View.class.getDeclaredMethod("setTransitionAlpha", float.class);
@@ -560,17 +611,33 @@ final class ClockMaterialPreview {
             MAIN.post(() -> { if (candidate == owner) close(reason); });
         }
         void startMotion() {
+            if (owner.motionStarted || owner.fonts == null) return;
+            owner.motionStarted = true;
             ClockMvpGeometry.Plan p = owner.motion;
             state = "moving:calibrated-desktop";
-            layer.animate().scaleX(p.scaleX()).scaleY(p.scaleY())
-                    .translationX(p.moveX()).translationY(p.moveY()).setDuration(420L)
-                    .setInterpolator(new PathInterpolator(.22f, 0f, .15f, 1f))
-                    .withEndAction(() -> {
-                        if (candidate != owner) return;
-                        owner.arrived = true;
-                        state = "arrived:calibrated-desktop";
-                        finishAtTarget(owner);
-                    }).start();
+            ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
+            owner.motionAnimator = animator;
+            animator.setDuration(420L);
+            animator.setInterpolator(new PathInterpolator(.22f, 0f, .15f, 1f));
+            animator.addUpdateListener(value -> {
+                if (candidate != owner || failed) return;
+                float fraction = value.getAnimatedFraction();
+                try {
+                    for (int i = 0; i < owner.fonts.size(); i++) owner.fonts.get(i).apply(fraction);
+                    float scale = 1f + (p.scale() - 1f) * fraction;
+                    layer.setScaleX(scale); layer.setScaleY(scale);
+                    layer.setTranslationX(p.moveX() * fraction); layer.setTranslationY(p.moveY() * fraction);
+                } catch (Throwable error) { fail("font-morph-" + failure(error)); }
+            });
+            animator.addListener(new AnimatorListenerAdapter() {
+                @Override public void onAnimationEnd(Animator animation) {
+                    if (candidate != owner || failed) return;
+                    owner.arrived = true;
+                    state = "arrived:native-font-target";
+                    finishAtTarget(owner);
+                }
+            });
+            animator.start();
         }
         @Override protected void onMeasure(int width, int height) {
             setMeasuredDimension(MeasureSpec.getSize(width), MeasureSpec.getSize(height));

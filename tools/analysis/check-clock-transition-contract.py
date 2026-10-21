@@ -71,5 +71,6 @@ for owner, contract in contracts.items():
 print(json.dumps({'verified_members': len(result), 'members': result,
                   'runtime_required': ['ClassLoader resolution of SurfaceTransition.Params',
                                        'Hook delivery/order after compiler inlining',
-                                       'live horizontal clock bounds and window lifetime'],
+                                       'live horizontal clock bounds and window lifetime',
+                                       'Paint setFontVariationOverride or setCustomVariationOverride and typed float setters'],
                   'desktop_hooks_added': 3, 'desktop_contract_checked_here': False}, ensure_ascii=False, indent=2))
