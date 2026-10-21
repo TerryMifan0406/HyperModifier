@@ -26,7 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Independent native TimeView material host. Never reparents or hides a source View. */
+/** Native TimeView host with a bounded, restorable handoff from source glyphs. */
 final class ClockMaterialPreview {
     // Same existing SystemUI internal window privilege; no new permission or endpoint.
     private static final int WINDOW_TYPE = 2017; // TYPE_STATUS_BAR_SUB_PANEL
@@ -35,7 +35,7 @@ final class ClockMaterialPreview {
     private static volatile Factory factory;
     private static volatile Candidate candidate;
     private static volatile String state = "off", metadata = "not-requested";
-    private static volatile int shownCount, nativeDrawCount;
+    private static volatile int shownCount, nativeDrawCount, handoffCount;
     private static volatile String targetStatus = "not-seen", lastResult = "none";
 
     static Object token() { return candidate; }
@@ -94,9 +94,6 @@ final class ClockMaterialPreview {
     static void remoteStart(Object info) {
         Candidate value = candidate; Factory reader = factory;
         if (value == null || reader == null || !enabled()) return;
-        if (value.shown) {
-            MAIN.post(() -> { if (candidate == value) close("new-keyguard-transition"); }); return;
-        }
         try {
             int flags = (Integer) reader.flags.invoke(info);
             if ((flags & 0x100) == 0) {
@@ -116,18 +113,65 @@ final class ClockMaterialPreview {
                         user, Process.myUid() / 100000);
             }
             if (candidate == value) {
+                if (home && value.remoteAt == 0) value.remoteAt = SystemClock.uptimeMillis();
                 value.home = home; targetStatus = "going-away home=" + home;
+                if (home) MAIN.post(value.show);
+                else MAIN.post(() -> { if (candidate == value) close("target-not-home"); });
             }
         } catch (ReflectiveOperationException | RuntimeException error) {
-            if (candidate == value) value.home = false;
+            if (candidate == value) {
+                value.home = false;
+                MAIN.post(() -> { if (candidate == value) close("target-unavailable"); });
+            }
         }
     }
 
     static void finished(Object expected) {
         Candidate value = candidate;
         if (value == null || value != expected) return;
-        MAIN.removeCallbacks(value.show);
-        MAIN.postDelayed(value.show, 16L); // One next-frame attempt, never retry until source disappears.
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            MAIN.post(() -> finished(expected)); return;
+        }
+        value.exitFinished = true;
+        if (!value.handedOff || value.root == null) { close("exit-before-handoff"); return; }
+        if (value.fading) return;
+        value.fading = true;
+        state = "fading:exit-finished";
+        lastResult = "handoff-delay-ms=" + (value.handoffAt - value.remoteAt)
+                + " exit-after-handoff-ms=" + (SystemClock.uptimeMillis() - value.handoffAt);
+        // No guessed desktop target: retain source pose and only fade this handoff experiment.
+        value.root.animate().alpha(0f).setDuration(160L).withEndAction(() -> {
+            if (candidate == value) close("handoff-complete");
+        }).start();
+    }
+
+    static void sourceDetached(View source) {
+        Candidate value = candidate;
+        if (value == null) return;
+        for (WeakReference<View> ref : value.sources) {
+            if (ref.get() == source) { close("source-detached"); return; }
+        }
+    }
+
+    private static void handoff(Candidate value) {
+        if (candidate != value || value.handedOff || value.root == null) return;
+        if (!enabled() || !value.home || value.exitFinished || !value.root.isAttachedToWindow()
+                || !value.root.isShown() || value.root.getWindowVisibility() != View.VISIBLE
+                || value.display.getRotation() != value.rotation) { close("handoff-stale"); return; }
+        try {
+            for (CopiedPart part : value.parts) {
+                View source = part.lease().target();
+                if (source == null || !source.isAttachedToWindow() || source.getDisplay() == null
+                        || source.getDisplay().getDisplayId() != 0 || !part.lease().acquire())
+                    throw new IllegalStateException("source-unavailable-or-owned");
+            }
+            value.handedOff = true; handoffCount++;
+            value.handoffAt = SystemClock.uptimeMillis();
+            state = "handed-off:first-frame-committed";
+            lastResult = "handoff-delay-ms=" + (value.handoffAt - value.remoteAt);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            close("handoff-" + failure(error));
+        }
     }
 
     static void cancel(Object expected) {
@@ -137,26 +181,12 @@ final class ClockMaterialPreview {
     }
 
     private static void show(Candidate value) {
-        if (candidate != value || value.shown) return;
-        boolean hidden = true;
-        for (WeakReference<View> source : value.sources) {
-            View view = source.get();
-            if (view != null && view.isAttachedToWindow() && view.isShown()
-                    && view.getWindowVisibility() == View.VISIBLE) {
-                float alpha = 1;
-                View parent = view;
-                for (int i = 0; parent != null && i < 64; i++) {
-                    alpha *= parent.getAlpha();
-                    parent = parent.getParent() instanceof View next ? next : null;
-                }
-                if (parent != null || !Float.isFinite(alpha) || alpha > .01f) hidden = false;
-            }
-        }
+        if (candidate != value || value.root != null) return;
         int rotation = value.display.getRotation();
-        if (!ClockMaterialPreviewPolicy.show(enabled(), value.home, hidden,
+        if (!ClockMaterialPreviewPolicy.show(enabled(), value.home,
                 SystemClock.uptimeMillis() - value.created, rotation, value.parts.size())
-                || rotation != value.rotation) {
-            close("guard home=" + value.home + " hidden=" + hidden); return;
+                || rotation != value.rotation || value.exitFinished) {
+            close("guard home=" + value.home); return;
         }
         try {
             Context windowContext = value.context.createWindowContext(value.display, WINDOW_TYPE, null);
@@ -178,7 +208,7 @@ final class ClockMaterialPreview {
             params.setTitle("MHM clock material experiment");
             value.manager.addView(value.root, params);
             if (!value.shown) state = "window-added:awaiting-attach";
-            // Keep preparation watchdog until onAttachedToWindow has initialized sampling.
+            // One preparation/session watchdog also bounds a missing commit or exit callback.
         } catch (ReflectiveOperationException | RuntimeException error) { close("window-" + failure(error)); }
     }
 
@@ -191,15 +221,26 @@ final class ClockMaterialPreview {
         Candidate value = candidate; candidate = null;
         if (value != null) {
             MAIN.removeCallbacks(value.show); MAIN.removeCallbacks(value.timeout);
-            if (value.root != null) {
-                value.root.setVisibility(View.GONE);
-                try { if (value.root.getParent() != null) value.manager.removeViewImmediate(value.root); }
-                catch (RuntimeException error) {
-                    // Make it invisible first; request normal removal if immediate removal was refused.
-                    try { value.manager.removeView(value.root); } catch (RuntimeException ignored) {}
-                    reason += ":remove-" + error.getClass().getSimpleName();
+            try {
+                if (value.root != null) {
+                    value.root.setVisibility(View.GONE);
+                    value.root.animate().cancel();
+                    try { if (value.root.getParent() != null) value.manager.removeViewImmediate(value.root); }
+                    catch (RuntimeException error) {
+                        // Make it invisible first; request normal removal if immediate removal was refused.
+                        try { value.manager.removeView(value.root); } catch (RuntimeException ignored) {}
+                        reason += ":remove-" + error.getClass().getSimpleName();
+                    }
+                    value.root.removeAllViews();
                 }
-                value.root.removeAllViews();
+            } catch (RuntimeException error) {
+                reason += ":cleanup-" + error.getClass().getSimpleName();
+            }
+            for (CopiedPart part : value.parts) {
+                try { part.lease().restore(); }
+                catch (ReflectiveOperationException | RuntimeException error) {
+                    reason += ":restore-" + error.getClass().getSimpleName();
+                }
             }
         }
         state = "closed:" + reason;
@@ -207,7 +248,7 @@ final class ClockMaterialPreview {
 
     static void dump(PrintWriter out) {
         out.println("    materialPreview: enabled=" + enabled() + " metadata=" + metadata + " state=" + state
-                + " shown=" + shownCount + " nativeDrawn=" + nativeDrawCount + " target=" + targetStatus
+                + " shown=" + shownCount + " nativeDrawn=" + nativeDrawCount + " handoffs=" + handoffCount + " target=" + targetStatus
                 + " lastResult=" + lastResult);
     }
 
@@ -221,6 +262,10 @@ final class ClockMaterialPreview {
         final long created = SystemClock.uptimeMillis();
         WindowManager manager;
         volatile boolean home, shown;
+        volatile long remoteAt;
+        long handoffAt;
+        boolean handedOff, exitFinished, fading;
+        final Runnable committed = () -> MAIN.post(() -> handoff(this));
         final Runnable show = () -> { if (candidate == this) ClockMaterialPreview.show(this); };
         final Runnable timeout = () -> { if (candidate == this) close("timeout"); };
         Candidate(Context context, Display display, List<CopiedPart> parts, List<WeakReference<View>> sources) {
@@ -230,11 +275,13 @@ final class ClockMaterialPreview {
     }
 
     private record CopiedPart(Object[] values, Paint paint, float[] glassData, Matrix screenMatrix,
-                              Rect clip, int width, int height, float alpha, int blurRadius) {}
+                              Rect clip, int width, int height, float alpha, int blurRadius,
+                              ClockTransitionAlphaLease<View> lease) {}
     private record Part(View replica, Matrix screenMatrix, Rect clip, int width, int height) {}
 
     private static final class Factory {
         final Constructor<?> constructor;
+        final ClockTransitionAlphaLease.Access<View> transitionAlpha;
         final Field paint, glass, data, style, transparency, passEnabled;
         final Method chooseContainer, passWindow, backgroundMode, glassRadius, excludeBelow;
         final Field[] values;
@@ -244,6 +291,17 @@ final class ClockMaterialPreview {
             Class<?> time = Class.forName("com.miui.clock.allInOne.TimeView", false, loader);
             constructor = time.getConstructor(Context.class);
             passEnabled = field(View.class, "mNeedPassWindowBlur");
+            Method getAlpha = View.class.getDeclaredMethod("getTransitionAlpha");
+            Method setAlpha = View.class.getDeclaredMethod("setTransitionAlpha", float.class);
+            getAlpha.setAccessible(true); setAlpha.setAccessible(true);
+            transitionAlpha = new ClockTransitionAlphaLease.Access<>() {
+                public float read(View target) throws ReflectiveOperationException {
+                    return (Float) getAlpha.invoke(target);
+                }
+                public void write(View target, float alpha) throws ReflectiveOperationException {
+                    setAlpha.invoke(target, alpha);
+                }
+            };
             style = field(time, "clockStyleInfo");
             transparency = field(Class.forName("com.miui.clock.module.ClockStyleInfo", false, loader), "glassTransparency");
             paint = field(time, "textPaint"); glass = field(time, "isMiGlassEffectEnable"); data = field(time, "glassData");
@@ -273,6 +331,7 @@ final class ClockMaterialPreview {
             Rect clip = new Rect();
             if (!source.getGlobalVisibleRect(clip) || clip.isEmpty()) return;
             if (!glass.getBoolean(source)) throw new IllegalArgumentException("not-glass");
+            if (transitionAlpha.read(source) != 1f) throw new IllegalArgumentException("source-transition-owned");
             Object[] copied = new Object[values.length];
             for (int i = 0; i < values.length; i++) {
                 copied[i] = values[i].get(source);
@@ -307,7 +366,7 @@ final class ClockMaterialPreview {
             if (!out.isEmpty() && out.get(0).blurRadius() != radius)
                 throw new IllegalArgumentException("sampling-radius-mismatch");
             out.add(new CopiedPart(copied, copiedPaint, original.clone(), matrix, clip,
-                    source.getWidth(), source.getHeight(), alpha, radius));
+                    source.getWidth(), source.getHeight(), alpha, radius, new ClockTransitionAlphaLease<>(source, transitionAlpha)));
         }
         Part rebuild(CopiedPart source, Context context) throws ReflectiveOperationException {
             View replica = (View) constructor.newInstance(context);
@@ -368,8 +427,9 @@ final class ClockMaterialPreview {
                 samplingReady = true;
                 owner.shown = true; shownCount++;
                 state = "shown:native-sampling-container-unverified";
-                MAIN.removeCallbacks(owner.timeout);
-                MAIN.postDelayed(owner.timeout, 500L);
+                // One commit callback, no per-frame observation. Sources remain untouched
+                // until this independently rendered window has submitted a first frame.
+                getViewTreeObserver().registerFrameCommitCallback(owner.committed);
             } catch (ReflectiveOperationException | RuntimeException error) {
                 fail("sampling-" + failure(error));
             }
@@ -405,7 +465,7 @@ final class ClockMaterialPreview {
                         drawChild(canvas, part.replica(), time);
                     } finally { canvas.restoreToCount(save); }
                 }
-                if (!drawn) { drawn = true; nativeDrawCount++; lastResult = "native-draw-submitted:visual-unverified"; }
+                if (!drawn) { drawn = true; nativeDrawCount++; }
             } catch (RuntimeException error) {
                 failed = true; setVisibility(GONE);
                 Candidate expected = candidate;

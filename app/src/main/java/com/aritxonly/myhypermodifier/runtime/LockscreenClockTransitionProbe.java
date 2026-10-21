@@ -89,6 +89,7 @@ final class LockscreenClockTransitionProbe {
             handles.add(module.hook(detach).setId("clock-transition-probe-detach")
                     .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
                         if (Looper.myLooper() == Looper.getMainLooper()) {
+                            ClockMaterialPreview.sourceDetached((View) chain.getThisObject());
                             CLOCKS.remove((View) chain.getThisObject()); release("source-detached");
                         }
                         return chain.proceed();
