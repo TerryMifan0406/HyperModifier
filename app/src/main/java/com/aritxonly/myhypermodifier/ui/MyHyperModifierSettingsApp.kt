@@ -882,6 +882,7 @@ private fun scopeStatuses(
             settings.sinkLockscreenNotificationsForFingerprint,
             settings.hideLockscreenClockLeadingZero,
             settings.hideDesktopClockLeadingZero,
+            settings.desktopClockMaterial != 0,
             settings.desktopSearch4x7Enabled,
             settings.androidWidgetStackEnabled,
             settings.androidWidgetGlassEnabled,
@@ -928,7 +929,7 @@ private fun scopeStatuses(
     ScopeStatus(
         appName = "系统桌面",
         packageName = ModuleScopePackage.LAUNCHER,
-        hasModification = settings.desktopSearch4x7Enabled || settings.hideDesktopClockLeadingZero || settings.androidWidgetStackEnabled || settings.androidWidgetGlassEnabled,
+        hasModification = settings.desktopSearch4x7Enabled || settings.hideDesktopClockLeadingZero || settings.desktopClockMaterial != 0 || settings.androidWidgetStackEnabled || settings.androidWidgetGlassEnabled,
         isActive = framework.isActive(ModuleScopePackage.LAUNCHER),
     ),
     ScopeStatus(

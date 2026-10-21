@@ -3,6 +3,7 @@
 #include "widget_status_socket.h"
 #include "desktop_search.h"
 #include "native_install_control.h"
+#include "clock_glass.h"
 
 #include <android/log.h>
 #include <atomic>
@@ -142,6 +143,14 @@ void receiverHook(void *receiver, void *context, void *intent) {
             bool previous = enabled.exchange(value);
             cacheConfig(value);
             if (previous != value) changedLogs.store(0);
+            bool clockBlur = false, clockGlass = false;
+            if (readBool(extras, "mhm_clock_blur", clockBlur)
+                    && readBool(extras, "mhm_clock_soft_glass", clockGlass)
+                    && configureClockGlass(clockGlass ? 2 : clockBlur ? 1 : 0)) {
+                if (!installRequested.exchange(true) && installWake >= 0) {
+                    uint64_t wake = 1; (void)write(installWake, &wake, sizeof(wake));
+                }
+            }
             bool search = false;
             if (readBool(extras, "mhm_desktop_search_4x7", search) && configureDesktopSearch(search)) {
                 if (!installRequested.exchange(true) && installWake >= 0) {
@@ -161,6 +170,7 @@ void receiverHook(void *receiver, void *context, void *intent) {
 }
 
 struct Images {
+    ClockGlassImage clockMaml, clockFlutter;
     uintptr_t maml = 0, dart = 0;
     const ElfW(Phdr) *headers = nullptr;
     size_t headerCount = 0;
@@ -172,6 +182,9 @@ int findImages(dl_phdr_info *info, size_t, void *opaque) {
     if (std::strstr(name, "/librust_maml_sdk.so")) {
         images.maml = info->dlpi_addr;
         images.headers = info->dlpi_phdr; images.headerCount = info->dlpi_phnum;
+        images.clockMaml = {info->dlpi_addr, info->dlpi_phdr, info->dlpi_phnum};
+    } else if (std::strstr(name, "/libhyper_os_flutter.so")) {
+        images.clockFlutter = {info->dlpi_addr, info->dlpi_phdr, info->dlpi_phnum};
     } else if (std::strstr(name, "/libapp_launcher.so")) images.launcherPath = name;
     else if (std::strstr(name, "/libhyper_os_broadcast_private.dylib.so")) images.broadcastPath = name;
     else if (std::strstr(name, "/libapp.so")) { images.dart = info->dlpi_addr; images.dartPath = name; }
@@ -209,6 +222,7 @@ void install() {
     if (!guard.owns_lock()) return;
     NativeInstallScope installing;
     Images images; dl_iterate_phdr(findImages, &images);
+    installClockGlass(images.clockMaml, images.clockFlutter, hook, unhook);
     if (images.launcherPath && !androidWidgetHooksSettled()) {
         void *launcher = dlopen(images.launcherPath, RTLD_NOW | RTLD_NOLOAD);
         if (launcher) {
@@ -347,6 +361,7 @@ Loaded native_init(const NativeAPIEntries *entries) {
     readCachedConfig();
     loadAndroidWidgetConfig();
     loadDesktopSearchConfig();
+    loadClockGlassConfig();
     __android_log_print(ANDROID_LOG_INFO, TAG, "INIT launcher uid=%u api=%u", getuid(), entries->version);
     if (!workerStarted.exchange(true)) {
         installWake = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);

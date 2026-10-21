@@ -168,3 +168,33 @@ computed` 输出（字符串引用 0x136663c）；邻近 0x136700c 例程使用 
 当前没有可交付的玻璃时钟 APK；不加一个暂未接通的设置开关，也不修改原字体、
 分钟更新器或帧率。下一阶段的最小验证和性能边界见
 [原型计划](../plans/DESKTOP_CLOCK_MIGLASS.md)。
+
+## 2026-10-21：字形材质实验实现（尚未在手机运行）
+
+新增 `clock_glass.cpp` / `clock_glass_render.h`，采用普通 DateTime 的实际排版字形，
+暂不注入先前研究的矩形 Layer。`TextScreenElement::draw_text` 参数由调用点
+0x4854a4..0x485504 核对为 x0=self、x1=canvas、s0=offset。元素名称由
+0x48668c 的 marquee_log_name 核对：存在位 self+0x4d4 bit0，LeanString 在 +0x430；
+其 as_str 0x41b6b4 返回借用的 x0/x1 字符串与长度。
+
+Flutter ParagraphPainter::drawTextBlob 0xb373e4 接收 x0=this、x1=&blob、
+x2=&variant、s0/s1=坐标；variant index +0x50 为 1 时使用 DlPaint 索引。
+Painter+8 是 Builder，+0x10 指向 vector<DlPaint>，+0x18 为 Impeller 标记。
+DlPaint 大小 0x138。原函数自身在 colorSource 非空时已走 GetPath → DrawPath；
+本原型复用其同引擎字形轮廓提取，保留 blob bounds 的坐标补偿。
+
+重要的 LTO ABI 差异：GetPath 0xb7bc14 用 x0 传出 16 字节 SkPath、x1 传 blob；
+名为 SkPath::~SkPath 的 0x87b008 实际接收内部 SkPathRef*，不是 SkPath*。
+DlPath 构造 0xc271bc / 析构 0x7ed600 使用正常对象地址；不由模块自行析构外来 STL。
+
+SetAttributesFromPaint 0x7e0328 的 PassBlur 位为 19、混合参数位 20、BloomStroke 位 27。
+普通 DrawText / DrawPath 的属性掩码不包括这些位，故单独改 paint 后调用原 DrawText
+不能可靠带入材质。实现使用字形 DrawPath，并补齐属性位。Builder 材质字段在对应
+DlPaint 标量字段偏移 +0xc8；保存其原材质并显式记录恢复，因为 save/restore 不恢复
+画笔属性。不修改原 DlPaint，不从自定义复制对象析构借用 shared_ptr。
+
+MAML Build ID dc795c18e8fee60294ebb8040be92bc94e4ed4c05；Flutter Build ID
+c014a14bb9ddab4431a887c98c6d56ce305b0573。15 个入口/布局相关函数全段 FNV64
+代码契约见 `clock_glass_profile.h`；主机测试对真实 ELF 和逐项代码变异运行生产校验。
+这只是静态 ABI 与回退行为的验证，不证明背景纹理可用、TLS 绘制链在设备同步、
+BloomStroke 能按任意字形计算高光，或等效系统锁屏 MiGlass。验证计划另见阶段文档。

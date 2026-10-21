@@ -2,7 +2,7 @@
 #include <atomic>
 #include <cstring>
 
-// The four launcher Runtime libraries stay resident for the process lifetime.
+// The launcher Runtime libraries stay resident for the process lifetime.
 // Their first external load can wake the worker; repeated NOLOAD notifications
 // must not form an installation -> dlopen -> notification -> installation loop.
 class NativeLibraryNotifications {
@@ -16,6 +16,7 @@ public:
         else if (!std::strcmp(file, "libapp.so")) bit = 2;
         else if (!std::strcmp(file, "librust_maml_sdk.so")) bit = 4;
         else if (!std::strcmp(file, "libhyper_os_broadcast_private.dylib.so")) bit = 8;
+        else if (!std::strcmp(file, "libhyper_os_flutter.so")) bit = 16;
         else return false;
         if (seen.load(std::memory_order_relaxed) & bit) return false;
         return !(seen.fetch_or(bit, std::memory_order_relaxed) & bit);

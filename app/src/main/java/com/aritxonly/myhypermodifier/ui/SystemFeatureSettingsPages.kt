@@ -256,6 +256,14 @@ import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
             { update(settings.copy(hideDesktopClockLeadingZero = it)) },
             enabled = android.os.Build.VERSION.SDK_INT >= 36,
         )
+        WindowDropdownPreference(
+            title = "桌面时钟材质（实验）",
+            summary = "默认经典时钟的主时间；需桌面与系统界面作用域。切换后在下次时钟重绘时生效",
+            items = listOf("默认", "模糊", "柔光玻璃"),
+            selectedIndex = settings.desktopClockMaterial.let { if (it in 0..2) it else 0 },
+            onSelectedIndexChange = { update(settings.copy(desktopClockMaterial = it)) },
+            enabled = android.os.Build.VERSION.SDK_INT >= 36,
+        )
     }
     SettingsSection(topLabel = "安卓小组件") {
         DesktopWidgetCompatibilitySetting(settings.androidWidgetStackEnabled || settings.androidWidgetGlassEnabled)

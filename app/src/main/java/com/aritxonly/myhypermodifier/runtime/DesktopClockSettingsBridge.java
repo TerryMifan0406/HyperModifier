@@ -12,6 +12,7 @@ import android.util.Log;
 final class DesktopClockSettingsBridge {
     private static final String KEY = "hide_desktop_clock_leading_zero";
     private static final String SEARCH = "desktop_search_4x7_enabled";
+    private static final String CLOCK_MATERIAL = "desktop_clock_material";
     private static final String STACK = "deadliner_widget_stack_enabled";
     private static final String EXPERIMENT = "deadliner_clock_glass_experiment";
     private static final String GLASS = "deadliner_widget_glass_enabled";
@@ -28,10 +29,13 @@ final class DesktopClockSettingsBridge {
                 boolean enabled = preferences.getBoolean("module_hooks_enabled", true)
                         && preferences.getBoolean(KEY, false);
                 boolean moduleEnabled = preferences.getBoolean("module_hooks_enabled", true);
+                int material = moduleEnabled ? preferences.getInt(CLOCK_MATERIAL, 0) : 0;
                 Intent intent = new Intent("com.android.systemui.fsgesture")
                         .setPackage("com.miui.home")
                         .putExtra("mhm_desktop_clock_control", true)
                         .putExtra("mhm_desktop_clock_enabled", enabled)
+                        .putExtra("mhm_clock_blur", material == 1)
+                        .putExtra("mhm_clock_soft_glass", material == 2)
                         .putExtra("mhm_desktop_search_4x7", moduleEnabled && preferences.getBoolean(SEARCH, false))
                         .putExtra("mhm_android_widget_stack", moduleEnabled && preferences.getBoolean(STACK, false))
                         .putExtra("mhm_android_widget_glass", moduleEnabled && preferences.getBoolean(GLASS, false))
@@ -76,7 +80,7 @@ final class DesktopClockSettingsBridge {
             preferences = value;
             if (value != null) {
                 listener = (prefs, key) -> {
-                    if (SEARCH.equals(key) || KEY.equals(key) || STACK.equals(key) || GLASS.equals(key) || EXPERIMENT.equals(key) || AndroidWidgetGlassPolicy.KEY.equals(key) || AndroidWidgetGlassPolicy.CLOCK_STYLE_KEY.equals(key) || WidgetGlassStyles.KEY.equals(key) || "module_hooks_enabled".equals(key))
+                    if (CLOCK_MATERIAL.equals(key) || SEARCH.equals(key) || KEY.equals(key) || STACK.equals(key) || GLASS.equals(key) || EXPERIMENT.equals(key) || AndroidWidgetGlassPolicy.KEY.equals(key) || AndroidWidgetGlassPolicy.CLOCK_STYLE_KEY.equals(key) || WidgetGlassStyles.KEY.equals(key) || "module_hooks_enabled".equals(key))
                         HANDLER.post(DesktopClockSettingsBridge::publishSoon);
                 };
                 value.registerOnSharedPreferenceChangeListener(listener);

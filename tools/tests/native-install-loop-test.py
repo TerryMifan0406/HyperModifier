@@ -149,6 +149,9 @@ void installAndroidWidgetPickerHooks(const char *, uintptr_t, WidgetNativeHook, 
 void installDesktopSearch(const char *, uintptr_t, WidgetNativeHook, WidgetNativeUnhook) { ++sim::searches; }
 bool configureDesktopSearch(bool value) { return value; }
 void loadDesktopSearchConfig() {}
+void loadClockGlassConfig() {}
+bool configureClockGlass(unsigned value) { return value != 0; }
+void installClockGlass(ClockGlassImage, ClockGlassImage, WidgetNativeHook, WidgetNativeUnhook) {}
 bool configureAndroidWidgets(bool, bool, void *) { return true; }
 void loadAndroidWidgetConfig() {}
 int backendHook(void *target, void *, void **trampoline) {
@@ -276,6 +279,8 @@ int main() {
     assert(notifications.accept("libapp_launcher.so"));
     assert(notifications.accept("librust_maml_sdk.so"));
     assert(notifications.accept("libhyper_os_broadcast_private.dylib.so"));
+    assert(notifications.accept("libhyper_os_flutter.so"));
+    assert(!notifications.accept("/runtime/libhyper_os_flutter.so"));
     std::cout << "Production installer: occupied target, missing export/handle/API/trampoline, success, "
                  "late load/settings, 10000 duplicate installs and 80000 concurrent notifications passed\n";
 }
