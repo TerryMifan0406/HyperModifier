@@ -8,5 +8,6 @@ struct ClockGlassImage {
 };
 void loadClockGlassConfig();
 bool configureClockGlass(unsigned mode);
+void configureClockGlassParameters(uint32_t value);
 void installClockGlass(ClockGlassImage maml, ClockGlassImage flutter,
         int (*hook)(void *, void *, void **), int (*unhook)(void *), void (*wakeWorker)() = nullptr);

@@ -94,6 +94,8 @@ data class ModifierSettings(
     val hideLockscreenClockLeadingZero: Boolean = false,
     val hideDesktopClockLeadingZero: Boolean = false,
     val desktopClockMaterial: Int = 0,
+    val desktopClockBlurRadius: Int = 12,
+    val desktopClockTintStrength: Int = 36,
     val desktopSearch4x7Enabled: Boolean = false,
     val desktopStatusBarIconMode: Int = 0,
     val androidWidgetStackEnabled: Boolean = false,
@@ -278,6 +280,8 @@ object ModifierSettingsPresets {
         hideLockscreenClockLeadingZero = false,
         hideDesktopClockLeadingZero = false,
         desktopClockMaterial = 0,
+        desktopClockBlurRadius = 12,
+        desktopClockTintStrength = 36,
         desktopSearch4x7Enabled = false,
         androidWidgetStackEnabled = false,
         androidWidgetGlassEnabled = false,
@@ -459,6 +463,8 @@ object ModifierSettingsStore {
     private const val KEY_DESKTOP_STATUS_BAR_ICON_MODE = "desktop_status_bar_icon_mode"
     private const val KEY_HIDE_DESKTOP_CLOCK_LEADING_ZERO = "hide_desktop_clock_leading_zero"
     private const val KEY_DESKTOP_CLOCK_MATERIAL = "desktop_clock_material"
+    private const val KEY_DESKTOP_CLOCK_BLUR_RADIUS = "desktop_clock_blur_radius"
+    private const val KEY_DESKTOP_CLOCK_TINT_STRENGTH = "desktop_clock_tint_strength"
     private const val KEY_DESKTOP_SEARCH_4X7_ENABLED = "desktop_search_4x7_enabled"
     private const val KEY_DEADLINER_WIDGET_STACK = "deadliner_widget_stack_enabled"
     private const val KEY_WIDGET_GLASS_TARGETS = "android_widget_glass_rules_v2"
@@ -708,6 +714,8 @@ object ModifierSettingsStore {
             hideLockscreenClockLeadingZero = prefs.getBoolean(KEY_HIDE_LOCKSCREEN_CLOCK_LEADING_ZERO, false),
             hideDesktopClockLeadingZero = prefs.getBoolean(KEY_HIDE_DESKTOP_CLOCK_LEADING_ZERO, false),
             desktopClockMaterial = prefs.getInt(KEY_DESKTOP_CLOCK_MATERIAL, 0).let { if (it in 0..2) it else 0 },
+            desktopClockBlurRadius = prefs.getInt(KEY_DESKTOP_CLOCK_BLUR_RADIUS, 12).coerceIn(2, 40),
+            desktopClockTintStrength = prefs.getInt(KEY_DESKTOP_CLOCK_TINT_STRENGTH, 36).coerceIn(0, 80),
             desktopSearch4x7Enabled = prefs.getBoolean(KEY_DESKTOP_SEARCH_4X7_ENABLED, false),
             desktopStatusBarIconMode = DesktopStatusBarPolicy.normalize(prefs.getInt(KEY_DESKTOP_STATUS_BAR_ICON_MODE, 0)),
             androidWidgetStackEnabled = prefs.getBoolean(KEY_DEADLINER_WIDGET_STACK, false),
@@ -1014,6 +1022,8 @@ object ModifierSettingsStore {
             .putInt(KEY_DESKTOP_STATUS_BAR_ICON_MODE, DesktopStatusBarPolicy.normalize(value.desktopStatusBarIconMode))
             .putBoolean(KEY_HIDE_DESKTOP_CLOCK_LEADING_ZERO, value.hideDesktopClockLeadingZero)
             .putInt(KEY_DESKTOP_CLOCK_MATERIAL, value.desktopClockMaterial.let { if (it in 0..2) it else 0 })
+            .putInt(KEY_DESKTOP_CLOCK_BLUR_RADIUS, value.desktopClockBlurRadius.coerceIn(2, 40))
+            .putInt(KEY_DESKTOP_CLOCK_TINT_STRENGTH, value.desktopClockTintStrength.coerceIn(0, 80))
             .putBoolean(KEY_DESKTOP_SEARCH_4X7_ENABLED, value.desktopSearch4x7Enabled)
             .putBoolean(KEY_DEADLINER_WIDGET_STACK, value.androidWidgetStackEnabled)
             .putBoolean(KEY_DEADLINER_WIDGET_GLASS, value.androidWidgetGlassEnabled)
@@ -1411,6 +1421,8 @@ object ModifierSettingsStore {
         putInt(KEY_DESKTOP_STATUS_BAR_ICON_MODE, DesktopStatusBarPolicy.normalize(value.desktopStatusBarIconMode))
         putBoolean(KEY_HIDE_DESKTOP_CLOCK_LEADING_ZERO, value.hideDesktopClockLeadingZero)
         putInt(KEY_DESKTOP_CLOCK_MATERIAL, value.desktopClockMaterial.let { if (it in 0..2) it else 0 })
+        putInt(KEY_DESKTOP_CLOCK_BLUR_RADIUS, value.desktopClockBlurRadius.coerceIn(2, 40))
+        putInt(KEY_DESKTOP_CLOCK_TINT_STRENGTH, value.desktopClockTintStrength.coerceIn(0, 80))
         putBoolean(KEY_DESKTOP_SEARCH_4X7_ENABLED, value.desktopSearch4x7Enabled)
         putBoolean(KEY_DEADLINER_WIDGET_STACK, value.androidWidgetStackEnabled)
         putBoolean(KEY_DEADLINER_WIDGET_GLASS, value.androidWidgetGlassEnabled)

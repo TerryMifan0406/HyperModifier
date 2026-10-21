@@ -74,7 +74,7 @@ int main(int, char **argv) {
     assert(ready && hooks==3 && !rollbacks);
     configured.store(Default); installClockGlass(mi,fi,backend,undo); assert(hooks==3);
     configured.store(Blur); installClockGlass(mi,fi,backend,undo); assert(hooks==3);
-    std::cout << "Material installer: both real ELF contracts, 19 code mutations, lazy/late load, transactional rollback, occupied targets and terminal failures passed\n";
+    std::cout << "Material installer: both real ELF contracts, 13 code mutations, lazy/late load, transactional rollback, occupied targets and terminal failures passed\n";
 }
 '''
 with tempfile.TemporaryDirectory(prefix='mhm-clock-material-') as tmp:

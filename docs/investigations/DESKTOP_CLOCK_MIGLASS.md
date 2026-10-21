@@ -234,3 +234,42 @@ BloomStroke 有独立的矩形 drawBloomStroke 接口 0xc50dc8；简单设其画
 ABI 契约更新为 19 项，并纳入 ClipPath 本体、DrawRect 回放与 AHB 导入。主机测试
 验证缺失背景回退及标记/AA 恢复；不验证 GPU 采样、实际背景可用性或视觉质量。
 手机本轮只读读取日志；未安装修改后的版本。
+
+
+## 2026-10-22：v2 模糊确认与原文字 alpha 遮罩
+
+用户已确认 v2 模糊成功，但仍有锯齿，且偏暗、数字不清晰。此前的 AA ClipPath
+请求不保证当前 stencil/MSAA 管线得到与 native text atlas 相同的覆盖率；具体 GPU
+硬边成因尚未采样，不将这项推测写成已证实的驱动结论。
+
+v3 不再调用 GetPath/DlPath/ClipPath。ParagraphPainter 原函数在 source 的
+colorSource(+0xf8) 为空时走原生文字管线。核对该函数仅访问 painter+8 的 builder、
++0x10 的 vector<DlPaint> 和 +0x18 的 Impeller 标志；variant+0x50==1 代表索引。
+模块以栈上的同步借用 painter/vector/paint/variant 视图调用原 trampoline，白色文字
+保留原 blob、字体轴和坐标。视图不运行外来 STL/shared_ptr 析构，不修改原对象。
+
+新增调用 DisplayListBuilder::SaveLayer 0x7cbb94，签名为 optional<Rect> const&、
+DlPaint*、DlImageFilter*、optional<int64>、optional<uint64>。Rect 的 present byte
+在 +0x10；两个可空 64 位标量分别以 x4/x5、x6/x7 传递。使用空画笔/滤镜和未出现的
+标量，使离屏结果按普通 SrcOver 合成；层 bounds 为原 blob bounds+坐标并外扩 1。
+该 wrapper 调用 0x7d0c40；后者 LTO 后 x2 接收 options 指针，因此不能把其符号名
+当成按值 ABI 直接调用。restore 调用完整本体 0x7ca500，不只校验跳转 thunk。
+
+先绘制白色原文字 alpha，再用全 bounds 的 PassBlur 矩形执行 SrcIn（5），使采样的
+预乘颜色/alpha 乘以文字覆盖；矩形涵盖空白部分，从而保留数字洞口透明。
+在原生 PassBlur 回放分支 0xc472b0 读取 dispatcher+0x44 的混合模式，并在
+0xc472ec 写入 entity，已确认该值进入纹理绘制分支。这是静态调用链证据，最终
+atlas 覆盖与混合结果仍需真机验证。缺背景时原有回退仍执行 SrcIn 的原字色矩形。
+
+原生 profile 更新为 13 项：移除未再使用的路径辅助函数，加入 SaveLayer wrapper、
+SaveLayer 本体、Restore 本体；保留文字、属性、矩形和 AHB 导入全函数契约。
+初始化仍为三处事务 Hook，不增加系统进程范围。文字 alpha 动画仍走原绘制。
+
+显色默认从 20% 提到 36%，半径默认 12；UI 暴露半径与显色强度。
+新 i32 参数经现有可信 SystemUI 广播、可选 Bundle_get_i32 读取，不引入新服务。
+主机覆盖可选接口缺失、可信/非可信发送者、错误 Result 和参数归一化。
+
+性能变化是移除每次字形轮廓提取/包装分配，增加时钟范围内一个 GPU 合成层。
+绘制不读文件、不发 IPC、不解析规则、不逐帧日志，没有新增定时刷新；配置缓存只在
+变化时写。高斯输入仍可能为全窗口纹理，新增层也有 GPU 成本；尚无 Perfetto、
+FrameTimeline 或功耗对照，不能声称总体性能改善或锯齿已在实机修复。

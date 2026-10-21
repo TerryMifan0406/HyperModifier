@@ -82,7 +82,7 @@ Unhook unhook = nullptr;
 void *originalReceiver = nullptr;
 GetString getAction = nullptr, getSender = nullptr;
 GetExtras getExtras = nullptr;
-GetBool getBool = nullptr;
+GetBool getBool = nullptr, getInteger = nullptr;
 std::mutex installMutex;
 std::atomic<bool> enabled{false};
 std::atomic<unsigned> changedLogs{0};
@@ -148,6 +148,12 @@ void receiverHook(void *receiver, void *context, void *intent) {
             bool previous = enabled.exchange(value);
             cacheConfig(value);
             if (previous != value) changedLogs.store(0);
+            if (getInteger) {
+                constexpr char key[] = "mhm_clock_tuning_v1";
+                uint64_t result = getInteger(extras, key, sizeof(key) - 1);
+                if (static_cast<uint32_t>(result) == 0)
+                    configureClockGlassParameters(static_cast<uint32_t>(result >> 32));
+            }
             bool clockBlur = false, clockGlass = false;
             if (readBool(extras, "mhm_clock_blur", clockBlur)
                     && readBool(extras, "mhm_clock_soft_glass", clockGlass)
@@ -255,6 +261,7 @@ void install() {
             getSender = reinterpret_cast<GetString>(dlsym(launcher, "Intent_get_sender_package_name"));
             getExtras = reinterpret_cast<GetExtras>(dlsym(launcher, "Intent_get_extras"));
             getBool = reinterpret_cast<GetBool>(dlsym(launcher, "Bundle_get_boolean"));
+            getInteger = reinterpret_cast<GetBool>(dlsym(launcher, "Bundle_get_i32"));
             void *target = dlsym(broadcast, RECEIVER_SYMBOL);
             if (getAction && getSender && getExtras && getBool && target && unhook) {
                 int result = hook(target, reinterpret_cast<void *>(receiverHook), &originalReceiver);

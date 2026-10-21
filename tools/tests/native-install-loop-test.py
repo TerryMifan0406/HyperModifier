@@ -44,7 +44,9 @@ int64_t now = 0;
 unsigned waits = 0, loads = 0, closes = 0, bridgeHooks = 0, calendarHooks = 0;
 unsigned bridgeRollbacks = 0, calendarRollbacks = 0, bridgeLogs = 0, writes = 0, searches = 0;
 int loggedBridgeResult = -1, loggedBridgeReady = -1;
-unsigned forwarded = 0;
+unsigned forwarded = 0, tuningCalls = 0;
+uint32_t lastTuning = 0;
+bool missingInteger = false, trustedSender = true, integerError = false;
 void *forwardReceiver = nullptr, *forwardContext = nullptr, *forwardIntent = nullptr;
 bool libraries = true, failLauncher = false, missingExport = false, missingTrampoline = false;
 bool pointerOnFailure = false;
@@ -111,6 +113,7 @@ int simDlclose(void *) {
 }
 void *simDlsym(void *, const char *name) {
     if (sim::missingExport && !std::strcmp(name, "Intent_get_action")) return nullptr;
+    if (sim::missingInteger && !std::strcmp(name, "Bundle_get_i32")) return nullptr;
     if (!std::strcmp(name, RECEIVER_SYMBOL)) return reinterpret_cast<void *>(receiverTarget);
     return reinterpret_cast<void *>(original);
 }
@@ -150,6 +153,7 @@ void installDesktopSearch(const char *, uintptr_t, WidgetNativeHook, WidgetNativ
 bool configureDesktopSearch(bool value) { return value; }
 void loadDesktopSearchConfig() {}
 void loadClockGlassConfig() {}
+void configureClockGlassParameters(uint32_t value) { ++sim::tuningCalls; sim::lastTuning = value; }
 bool configureClockGlass(unsigned value) { return value != 0; }
 void installClockGlass(ClockGlassImage, ClockGlassImage, WidgetNativeHook, WidgetNativeUnhook, void (*)()) {}
 bool configureAndroidWidgets(bool, bool, void *) { return true; }
@@ -173,7 +177,7 @@ void reset(size_t profileIndex = 0) {
     sim::calendarRva = profile.rva;
     sim::now = 0; sim::waits = sim::loads = sim::closes = sim::bridgeHooks = sim::calendarHooks = 0;
     sim::bridgeRollbacks = sim::calendarRollbacks = sim::bridgeLogs = sim::writes = sim::searches = 0;
-    sim::forwarded = 0;
+    sim::forwarded = sim::tuningCalls = sim::lastTuning = 0; sim::missingInteger = sim::integerError = false; sim::trustedSender = true;
     sim::libraries = true; sim::failLauncher = sim::missingExport = sim::missingTrampoline = false;
     sim::pointerOnFailure = false; sim::loggedBridgeResult = sim::loggedBridgeReady = -1;
     sim::widgetSettled = sim::pickerSettled = false; sim::result = 1;
@@ -242,6 +246,31 @@ int main() {
     receiverHook(reinterpret_cast<void *>(1), reinterpret_cast<void *>(2), nullptr);
     assert(sim::forwarded == 1 && sim::forwardReceiver == reinterpret_cast<void *>(1)
         && sim::forwardContext == reinterpret_cast<void *>(2) && !sim::forwardIntent);
+    // Optional scalar export never disables unrelated features on older carriers.
+    reset(); sim::result = 0; sim::missingInteger = true; runToIdle();
+    assert(widget_status::bridge.load() == widget_status::Ready && !getInteger);
+    // Exercise the real authenticated receiver's packed tuning branch, rather
+    // than reimplementing its decoding in a test helper.
+    getAction = +[](void *) -> BorrowedString { return {0, {}, ACTION, std::strlen(ACTION)}; };
+    getSender = +[](void *) -> BorrowedString {
+        const char *name = sim::trustedSender ? "com.android.systemui" : "other.module";
+        return {0, {}, name, std::strlen(name)};
+    };
+    getExtras = +[](void *intent) -> void * { return intent; };
+    getBool = +[](void *, const char *, size_t) -> uint64_t { return UINT64_C(1) << 8; };
+    getInteger = +[](void *, const char *key, size_t length) -> uint64_t {
+        assert(length == 19 && !std::memcmp(key, "mhm_clock_tuning_v1", length));
+        return (uint64_t(40 | (80 << 6)) << 32) | (sim::integerError ? 1 : 0);
+    };
+    receiverHook(nullptr, nullptr, reinterpret_cast<void *>(1));
+    assert(sim::tuningCalls == 1 && sim::lastTuning == (40 | (80 << 6)) && !sim::forwarded);
+    sim::integerError = true; receiverHook(nullptr, nullptr, reinterpret_cast<void *>(1));
+    assert(sim::tuningCalls == 1); // Missing/invalid extra preserves current parameters.
+    sim::integerError = false; sim::trustedSender = false;
+    receiverHook(nullptr, nullptr, reinterpret_cast<void *>(1));
+    assert(sim::tuningCalls == 1 && sim::forwarded == 1);
+    sim::trustedSender = true; getInteger = nullptr;
+    receiverHook(nullptr, nullptr, reinterpret_cast<void *>(1)); assert(sim::tuningCalls == 1);
     // A rejected clock profile is terminal without any backend call.
     reset(); sim::maml[sizeof(Elf64_Nhdr) + 4] ^= 1; runToIdle();
     assert(!sim::calendarHooks && calendarAttempted && sim::waits == 1);
@@ -282,7 +311,7 @@ int main() {
     assert(notifications.accept("libhyper_os_flutter.so"));
     assert(!notifications.accept("/runtime/libhyper_os_flutter.so"));
     std::cout << "Production installer: occupied target, missing export/handle/API/trampoline, success, "
-                 "late load/settings, 10000 duplicate installs and 80000 concurrent notifications passed\n";
+                 "authenticated optional tuning carrier, late load/settings, 10000 duplicate installs and 80000 concurrent notifications passed\n";
 }
 '''
 with tempfile.TemporaryDirectory(prefix='mhm-install-loop-') as tmp:

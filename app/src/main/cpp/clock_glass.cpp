@@ -29,6 +29,7 @@ using Paragraph = void (*)(void *, const void *, float, float, const void *);
 using ReplayRect = void (*)(void *, const Rect *);
 Name name = nullptr;
 Renderer renderer;
+std::atomic<uint32_t> tuning{Parameters::defaults};
 void configPath(char (&path)[256]) {
     std::snprintf(path, sizeof(path), "/data/user_de/%u/com.miui.home/cache/mhm_clock_material", getuid() / 100000);
 }
@@ -67,7 +68,7 @@ void rectHook(void *self, const Rect *rect) {
 void paragraphHook(void *self, const void *blob, float x, float y, const void *paint) {
     unsigned mode = Scope::current();
     if (mode && configured.load(std::memory_order_relaxed) == mode
-            && ready.load(std::memory_order_acquire) && renderer.draw(self, blob, x, y, paint, mode)) {
+            && ready.load(std::memory_order_acquire) && renderer.draw(self, blob, x, y, paint, mode, Parameters::decode(tuning.load(std::memory_order_relaxed)))) {
         draws.fetch_add(1, std::memory_order_relaxed); return;
     }
     reinterpret_cast<Paragraph>(originalParagraph)(self, blob, x, y, paint);
@@ -114,9 +115,25 @@ bool matches(ClockGlassImage image, const unsigned char (&buildId)[B], const Con
 void loadClockGlassConfig() {
     char path[256], value = '0'; configPath(path);
     int fd = open(path, O_RDONLY | O_CLOEXEC);
-    if (fd < 0) return;
-    if (read(fd, &value, 1) == 1) configured.store(clock_glass::normalize(unsigned(value - '0')));
-    close(fd);
+    if (fd >= 0) {
+        if (read(fd, &value, 1) == 1) configured.store(clock_glass::normalize(unsigned(value - '0')));
+        close(fd);
+    }
+    std::snprintf(path, sizeof(path), "/data/user_de/%u/com.miui.home/cache/mhm_clock_tuning_v1", getuid() / 100000);
+    fd = open(path, O_RDONLY | O_CLOEXEC);
+    uint32_t parameters = Parameters::defaults;
+    if (fd >= 0) {
+        if (read(fd, &parameters, sizeof(parameters)) == sizeof(parameters)) tuning.store(Parameters::normalize(parameters));
+        close(fd);
+    }
+}
+void configureClockGlassParameters(uint32_t value) {
+    value = Parameters::normalize(value);
+    if (tuning.exchange(value) == value) return;
+    char path[256];
+    std::snprintf(path, sizeof(path), "/data/user_de/%u/com.miui.home/cache/mhm_clock_tuning_v1", getuid() / 100000);
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    if (fd >= 0) { (void)write(fd, &value, sizeof(value)); close(fd); }
 }
 bool configureClockGlass(unsigned value) {
     unsigned mode = clock_glass::normalize(value);
@@ -149,18 +166,10 @@ void installClockGlass(ClockGlassImage maml, ClockGlassImage flutter,
     name = reinterpret_cast<Name>(maml.base + kName);
     consumePending = reinterpret_cast<decltype(consumePending)>(flutter.base + kConsumePending);
     wakeDiagnostics = wakeWorker;
-    renderer = {
-        reinterpret_cast<decltype(renderer.getPath)>(flutter.base + kGetPath),
-        reinterpret_cast<decltype(renderer.makeDlPath)>(flutter.base + kDlPath),
-        reinterpret_cast<decltype(renderer.dropDlPath)>(flutter.base + kDropDlPath),
-        reinterpret_cast<decltype(renderer.dropPathRef)>(flutter.base + kDropPathRef),
-        reinterpret_cast<decltype(renderer.setPaint)>(flutter.base + kSetPaint),
-        reinterpret_cast<decltype(renderer.clipPath)>(flutter.base + kClipPath),
-        reinterpret_cast<decltype(renderer.drawRect)>(flutter.base + kDrawRect),
-        reinterpret_cast<decltype(renderer.save)>(flutter.base + kSave),
-        reinterpret_cast<decltype(renderer.restore)>(flutter.base + kRestore),
-        reinterpret_cast<decltype(renderer.translate)>(flutter.base + kTranslate),
-    };
+    renderer.setPaint = reinterpret_cast<decltype(renderer.setPaint)>(flutter.base + kSetPaint);
+    renderer.drawRect = reinterpret_cast<decltype(renderer.drawRect)>(flutter.base + kDrawRect);
+    renderer.saveLayer = reinterpret_cast<decltype(renderer.saveLayer)>(flutter.base + kSaveLayer);
+    renderer.restore = reinterpret_cast<decltype(renderer.restore)>(flutter.base + kRestore);
     void *rect = reinterpret_cast<void *>(flutter.base + kReplayRect);
     int result = hook(rect, reinterpret_cast<void *>(rectHook), &originalRect);
     if (result != 0 || !originalRect) {
@@ -182,6 +191,7 @@ void installClockGlass(ClockGlassImage maml, ClockGlassImage flutter,
         (void)unhook(rect);
         __android_log_print(ANDROID_LOG_WARN, TAG, "scope rejected result=%d rollback=%d", result, rollback); return;
     }
+    renderer.paragraph = reinterpret_cast<Renderer::Paragraph>(originalParagraph);
     ready.store(true, std::memory_order_release);
-    __android_log_write(ANDROID_LOG_INFO, TAG, "ready: AA glyph clip + native PassBlur rectangle; glass unavailable");
+    __android_log_write(ANDROID_LOG_INFO, TAG, "ready: native text alpha mask + PassBlur SrcIn; glass unavailable");
 }

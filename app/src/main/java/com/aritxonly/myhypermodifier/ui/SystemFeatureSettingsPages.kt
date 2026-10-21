@@ -265,6 +265,26 @@ import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
             onSelectedIndexChange = { update(settings.copy(desktopClockMaterial = it)) },
             enabled = android.os.Build.VERSION.SDK_INT >= 36,
         )
+        if (settings.desktopClockMaterial == 1) {
+            SettingsSliderItemWithLabel(
+                label = "模糊半径",
+                value = settings.desktopClockBlurRadius.toFloat(),
+                valueRange = 2f..40f,
+                onValueChange = { update(settings.copy(desktopClockBlurRadius = kotlin.math.round(it).toInt().coerceIn(2, 40))) },
+                steps = 37,
+                valueText = { "${kotlin.math.round(it).toInt()} px" },
+                enabled = android.os.Build.VERSION.SDK_INT >= 36,
+            )
+            SettingsSliderItemWithLabel(
+                label = "文字显色强度",
+                value = settings.desktopClockTintStrength.toFloat(),
+                valueRange = 0f..80f,
+                onValueChange = { update(settings.copy(desktopClockTintStrength = kotlin.math.round(it).toInt().coerceIn(0, 80))) },
+                steps = 79,
+                valueText = { "${kotlin.math.round(it).toInt()}%" },
+                enabled = android.os.Build.VERSION.SDK_INT >= 36,
+            )
+        }
     }
     SettingsSection(topLabel = "安卓小组件") {
         DesktopWidgetCompatibilitySetting(settings.androidWidgetStackEnabled || settings.androidWidgetGlassEnabled)
