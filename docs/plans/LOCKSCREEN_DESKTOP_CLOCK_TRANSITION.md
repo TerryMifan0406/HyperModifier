@@ -372,3 +372,48 @@ SystemUI smali 契约检查增至 44 项（原生构造器、字段与材质初�
 - Release APK v2 签名验证通过：`HyperModifier-v1.5.2-clock-material-preview-v4.apk`。
 - SHA-256：`f6d24d82480a362c6de1ff0104b2e90e1f839e2fdc452d22318b457d46d378c8`。
 - 以上属于构建、JVM 与静态验证；尚无本实验的真机窗口/材质视觉或性能测量。
+
+## v5：补齐原生玻璃背景容器（2026-10-21）
+
+用户视频 `VID_20261021_174613.mp4` 中，副本出现后字形带有鲜艳的桌面图标颜色；
+用户确认可见约 0.5 秒后清理。只读 SystemUI dump：metadata=ready、shown=4、
+nativeDrawn=4、closed:timeout、target home=true。计数为进程累计，不能据此推断帧率。
+
+静态追踪发现 v4 仅复制 TimeView 字形材质，缺少 AllInOneBase /
+MiuiBaseClock2.updateViewBackgroundBlurContainer 的原生采样容器链路。
+v5 为同一对字形共享现有实验 Host，使用缓存的平台 Method：
+setPassWindowBlurEnabled(true)、setMiBackgroundBlurMode(1)、
+setMiGlassBlurRadius(radius,radius)、disableMiBackgroundContainBelow(true)，
+并给每个字形 chooseBackgroundBlurContainer(host)。半径按当前 TimeView 的
+clockStyleInfo.glassTransparency 使用系统公式 int(10+40*t)；不保存原 style 对象。
+半径不一致、数值非法、接口缺失或调用失败均关闭本次预览。
+
+此次只修正原生配置缺口，不能由视频与静态追踪证明它是全部视觉异常的根因。
+跨窗口背景采样预期包含实际桌面内容，与锁屏壁纸背景不同；修正后仍需用同一
+壁纸/位置对照确认模糊、色彩、折射和坐标，不以“颜色不同”单独判定采样错位。
+
+性能范围：未新增 Hook、轮询、截图、动画驱动或额外窗口。新增元数据仅在显式
+开启实验后缓存；源字段每次有界准备读取，容器方法只在显示时调用一次。
+新增共享采样容器可能增加 GPU 模糊/采样成本，尚无真机性能前后对照；不得
+宣称帧率或耗电改善。窗口移除沿用 v4 的 500ms/取消/关闭设置清理边界。
+手机仅执行只读 dumpsys，未安装或操作手机。
+
+### 视频暴露的时序限制
+
+原时钟仍随系统解锁缩小淡出，副本在 ExitFinished 后才显示；这是 v4 的材质
+实验时序，v5 保留它用于单变量对照，不能称作连续过渡。后续必须在原时钟
+开始退出时准备并交接显示，协调原控件的可见性，避免原时钟和副本分别播放。
+原值恢复、取消返回锁屏、设置关闭及其他模块共同修改的边界需单独设计；
+目前不通过提前隐藏原 View 来掩盖材质问题，也未接入未经验证的桌面目标坐标。
+
+### v5 本地验证与交付
+
+最终 `:app:assembleRelease :app:test` 成功（1m7s），402 项 JVM 测试通过；
+两份本地 SystemUI smali 基线的静态契约均为 51 项通过。Release v2 签名通过。
+APK：`HyperModifier-v1.5.2-clock-material-sampling-v5.apk`，SHA-256：
+`1529750ad6e34e487fc8fcd272ae695e3a2d0f609814275b7d009c4dffae4ce7`。
+尚未安装到手机；本次测试未执行真实 Android 原生采样调用及合成。
+
+手动安装后重启系统界面，保持过渡诊断，关闭再开启材质承载预览，解锁一次。
+对照 v4 观察字形内颜色、模糊/折射、采样位置和是否意外影响整个背景；仍是
+解锁结束后出现 0.5 秒。下一阶段的时序交接不属于此包。

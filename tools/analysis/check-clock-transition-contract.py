@@ -22,6 +22,7 @@ contracts = {
                    'mMinuteOnlyPath:Landroid/graphics/Path;', 'mDrawTextX:F', 'mDrawTextY:F',
                    'mColonSplitIndex:I', 'mColonAlpha:F', 'fontAlpha:F', 'mColonAdvanceWidth:F',
                    'mText:Ljava/lang/String;', 'isMiGlassEffectEnable:Z',
+                   'clockStyleInfo:Lcom/miui/clock/module/ClockStyleInfo;',
                    'glassData:[F', 'textPaint:Landroid/graphics/Paint;', 'mFontStyle:I',
                    'mTextColor:I', 'textSizePx:F', 'weight:F', 'width:F', 'height:F', 'size:I'],
     },
@@ -29,7 +30,12 @@ contracts = {
         'methods': ['setGlassEffectMethod(Landroid/view/View;[F)V'],
         'fields': [name + ':Ljava/lang/reflect/Method;' for name in [
             'M_SET_MI_GLASS', 'M_SET_MI_GLASS_CLIP', 'M_SET_GLASS_EFFECT',
-            'M_SET_MI_VIEW_MATERIAL_TYPE', 'M_SET_MI_VIEW_BLUR_MODE', 'M_SET_MI_CUSTOM_SURFACE_COLOR_TYPE']],
+            'M_SET_MI_VIEW_MATERIAL_TYPE', 'M_SET_MI_VIEW_BLUR_MODE', 'M_SET_MI_CUSTOM_SURFACE_COLOR_TYPE',
+            'M_CHOOSE_BACKGROUND_BLUR_CONTAINER', 'M_SET_PASS_WINDOW_BLUR_ENABLED',
+            'M_SET_MI_BACKGROUND_BLUR_MODE', 'M_SET_MI_GLASS_BLUR_RADIUS', 'M_DISABLE_MI_BACKGROUND_CONTAIN_BELOW']],
+    },
+    'com/miui/clock/module/ClockStyleInfo': {
+        'fields': ['glassTransparency:Ljava/lang/Float;'],
     },
     'com/android/systemui/keyguard/KeyguardViewMediator': {
         'methods': [
