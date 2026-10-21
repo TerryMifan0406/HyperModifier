@@ -1,5 +1,6 @@
 #pragma once
 #include "widget_status.h"
+#include "clock_mvp.h"
 #include <cerrno>
 #include <cstddef>
 #include <poll.h>
@@ -36,8 +37,10 @@ public:
             if (client < 0) break;
             ucred peer{}; socklen_t length = sizeof(peer);
             if (!getsockopt(client, SOL_SOCKET, SO_PEERCRED, &peer, &length)
-                    && peer.uid == 1000) {
-                char response[768]; size_t size = widget_status::snapshot(response, sizeof(response));
+                    && (peer.uid == 1000 || (clockMvpPeerUid.load() != 0 && peer.uid == clockMvpPeerUid.load()))) {
+                char response[1024]; size_t size = widget_status::snapshot(response, sizeof(response));
+                if (size < sizeof(response))
+                    size += clockMvpSnapshot(response + size, sizeof(response) - size);
                 if (size < sizeof(response)) (void)send(client, response, size, MSG_DONTWAIT | MSG_NOSIGNAL);
             }
             close(client);

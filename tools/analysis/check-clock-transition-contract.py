@@ -72,4 +72,4 @@ print(json.dumps({'verified_members': len(result), 'members': result,
                   'runtime_required': ['ClassLoader resolution of SurfaceTransition.Params',
                                        'Hook delivery/order after compiler inlining',
                                        'live horizontal clock bounds and window lifetime'],
-                  'desktop_hooks_added': 0}, ensure_ascii=False, indent=2))
+                  'desktop_hooks_added': 3, 'desktop_contract_checked_here': False}, ensure_ascii=False, indent=2))

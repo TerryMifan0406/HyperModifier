@@ -5,6 +5,9 @@ import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.Matrix;
 import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.Point;
+import android.graphics.RectF;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.os.Handler;
@@ -17,6 +20,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.view.ViewTreeObserver;
+import android.view.animation.PathInterpolator;
+import android.view.animation.LinearInterpolator;
 
 import java.io.PrintWriter;
 import java.lang.ref.WeakReference;
@@ -82,10 +87,19 @@ final class ClockMaterialPreview {
                 reader.copy(parts, (View) colon.get(clock));
             }
             if (parts.isEmpty() || parts.size() > 4) { state = "skip:parts"; return; }
-            Candidate value = new Candidate(context, clocks.get(0).getDisplay(), parts, sources);
+            Point viewport = new Point();
+            clocks.get(0).getDisplay().getRealSize(viewport);
+            RectF sourceInk = new RectF();
+            for (CopiedPart part : parts) sourceInk.union(part.ink());
+            ClockMvpGeometry.Plan motion = ClockMvpGeometry.plan(new ClockMvpGeometry.Box(
+                    sourceInk.left, sourceInk.top, sourceInk.right, sourceInk.bottom), viewport.x, viewport.y,
+                    clocks.get(0).getResources().getDisplayMetrics().densityDpi);
+            if (motion == null) { state = "skip:uncalibrated-display-or-ink"; return; }
+            Candidate value = new Candidate(context, clocks.get(0).getDisplay(), parts, sources, motion);
             candidate = value; targetStatus = "not-seen"; lastResult = "sampling-radius=" + parts.get(0).blurRadius();
             state = "prepared:native-views=" + parts.size();
             MAIN.postDelayed(value.timeout, 1500L); // Bounded preparation watchdog, no polling.
+            ClockMvpPageBridge.read(context, before -> value.pageBefore = before);
             MAIN.post(value.warm); // Leave original GoingAway work first; prepare before remote target arrives.
         } catch (ReflectiveOperationException | RuntimeException error) {
             close("prepare-" + failure(error));
@@ -117,8 +131,14 @@ final class ClockMaterialPreview {
             if (candidate == value) {
                 if (home && value.remoteAt == 0) value.remoteAt = SystemClock.uptimeMillis();
                 value.home = home; targetStatus = "going-away home=" + home;
-                if (home) MAIN.post(value.show);
-                else MAIN.post(() -> { if (candidate == value) close("target-not-home"); });
+                if (home && value.pageQueryRequested.compareAndSet(false, true)) ClockMvpPageBridge.read(value.context, after -> MAIN.post(() -> {
+                    if (candidate != value) return;
+                    value.pageApproved = ClockMvpPagePolicy.approve(value.pageBefore, after);
+                    targetStatus = "home=true before=" + value.pageBefore + " after=" + after;
+                    if (value.pageApproved) value.show.run();
+                    else close("page-not-first-or-not-fresh");
+                }));
+                else if (!home) MAIN.post(() -> { if (candidate == value) close("target-not-home"); });
             }
         } catch (ReflectiveOperationException | RuntimeException error) {
             if (candidate == value) {
@@ -136,23 +156,28 @@ final class ClockMaterialPreview {
         }
         value.exitFinished = true;
         if (!value.handedOff || value.root == null) { close("exit-before-handoff"); return; }
-        if (value.fading) return;
-        value.fading = true;
-        state = "fading:exit-finished";
+        state = value.arrived ? "arrived:exit-finished" : "moving:exit-finished";
         lastResult = "handoff-delay-ms=" + (value.handoffAt - value.remoteAt)
                 + " exit-after-handoff-ms=" + (SystemClock.uptimeMillis() - value.handoffAt)
                 + " preparation-ms=" + value.preparationCost
                 + " prepared-before-remote-ms=" + (value.remoteAt - value.preparedAt)
                 + " activation-alpha=" + value.activationAlpha;
-        // No guessed desktop target: retain source pose and only fade this handoff experiment.
-        value.root.animate().alpha(0f).setDuration(160L).withEndAction(() -> {
-            if (candidate == value) close("handoff-complete");
-        }).start();
+        finishAtTarget(value);
+    }
+
+    private static void finishAtTarget(Candidate value) {
+        if (candidate != value || value.root == null || !value.exitFinished || !value.arrived || value.fading) return;
+        value.fading = true;
+        state = "fading:calibrated-target";
+        // The desktop clock remains visible in this explicitly calibrated MVP.
+        value.root.animate().alpha(0f).setDuration(120L).setInterpolator(new LinearInterpolator())
+                .withEndAction(() -> { if (candidate == value) close("mvp-complete"); }).start();
     }
 
     static void sourceDetached(View source) {
         Candidate value = candidate;
-        if (value == null) return;
+        if (value == null || value.handedOff) return;
+        // After commit the independent native glyphs must outlive keyguard detachment.
         for (WeakReference<View> ref : value.sources) {
             if (ref.get() == source) { close("source-detached"); return; }
         }
@@ -160,7 +185,7 @@ final class ClockMaterialPreview {
 
     private static void handoff(Candidate value) {
         if (candidate != value || value.handedOff || value.root == null) return;
-        if (!enabled() || !value.home || value.exitFinished || !value.root.isAttachedToWindow()
+        if (!enabled() || !value.home || !value.pageApproved || value.exitFinished || !value.root.isAttachedToWindow()
                 || !value.root.isShown() || value.root.getWindowVisibility() != View.VISIBLE
                 || value.display.getRotation() != value.rotation) { close("handoff-stale"); return; }
         try {
@@ -174,6 +199,7 @@ final class ClockMaterialPreview {
             value.handoffAt = SystemClock.uptimeMillis();
             state = "handed-off:first-frame-committed";
             lastResult = "handoff-delay-ms=" + (value.handoffAt - value.remoteAt);
+            value.root.startMotion();
         } catch (ReflectiveOperationException | RuntimeException error) {
             close("handoff-" + failure(error));
         }
@@ -243,6 +269,7 @@ final class ClockMaterialPreview {
                     value.root.disarm();
                     value.root.setVisibility(View.GONE);
                     value.root.animate().cancel();
+                    value.root.layer.animate().cancel();
                     try { if (value.root.getParent() != null) value.manager.removeViewImmediate(value.root); }
                     catch (RuntimeException error) {
                         // Make it invisible first; request normal removal if immediate removal was refused.
@@ -277,32 +304,36 @@ final class ClockMaterialPreview {
         final List<CopiedPart> parts;
         final List<WeakReference<View>> sources;
         final int rotation;
+        final ClockMvpGeometry.Plan motion;
         final long created = SystemClock.uptimeMillis();
         WindowManager manager;
         volatile boolean home, shown;
         volatile long remoteAt;
         long handoffAt, preparedAt, preparationCost;
         float activationAlpha;
-        boolean handedOff, exitFinished, fading, activationRequested;
+        boolean handedOff, exitFinished, fading, activationRequested, arrived, pageApproved;
+        volatile ClockMvpPagePolicy.Snapshot pageBefore;
+        final AtomicBoolean pageQueryRequested = new AtomicBoolean();
         final Runnable committed = () -> MAIN.post(() -> handoff(this));
         final Runnable warm = () -> { if (candidate == this) ClockMaterialPreview.warm(this); };
         final Runnable show = () -> { if (candidate == this) ClockMaterialPreview.show(this); };
         final Runnable timeout = () -> { if (candidate == this) close("timeout"); };
-        Candidate(Context context, Display display, List<CopiedPart> parts, List<WeakReference<View>> sources) {
-            this.context = context; this.display = display; this.parts = parts;
+        Candidate(Context context, Display display, List<CopiedPart> parts, List<WeakReference<View>> sources,
+                  ClockMvpGeometry.Plan motion) {
+            this.context = context; this.display = display; this.parts = parts; this.motion = motion;
             this.sources = sources; rotation = display.getRotation();
         }
     }
 
     private record CopiedPart(Object[] values, Paint paint, float[] glassData, Matrix screenMatrix,
                               Rect clip, int width, int height, float alpha, int blurRadius,
-                              ClockTransitionAlphaLease<View> lease) {}
+                              ClockTransitionAlphaLease<View> lease, RectF ink) {}
     private record Part(View replica, Matrix screenMatrix, Rect clip, int width, int height) {}
 
     private static final class Factory {
         final Constructor<?> constructor;
         final ClockTransitionAlphaLease.Access<View> transitionAlpha;
-        final Field paint, glass, data, style, transparency, passEnabled;
+        final Field paint, glass, data, style, transparency, passEnabled, textPath, colonPath, minutePath;
         final Method chooseContainer, passWindow, backgroundMode, glassRadius, excludeBelow;
         final Field[] values;
         final Method applyGlass, flags, changes, task, mode, activityType;
@@ -324,6 +355,8 @@ final class ClockMaterialPreview {
             };
             style = field(time, "clockStyleInfo");
             transparency = field(Class.forName("com.miui.clock.module.ClockStyleInfo", false, loader), "glassTransparency");
+            textPath = field(time, "mTextPath"); colonPath = field(time, "mColonPath");
+            minutePath = field(time, "mMinuteOnlyPath");
             paint = field(time, "textPaint"); glass = field(time, "isMiGlassEffectEnable"); data = field(time, "glassData");
             String[] names = {"fontAlpha", "mColonAdvanceWidth", "mColonAlpha", "mColonSplitIndex", "mDrawTextX",
                     "mDrawTextY", "mFontStyle", "mText", "mTextColor", "textSizePx", "weight", "width", "height", "size"};
@@ -386,7 +419,28 @@ final class ClockMaterialPreview {
             if (!out.isEmpty() && out.get(0).blurRadius() != radius)
                 throw new IllegalArgumentException("sampling-radius-mismatch");
             out.add(new CopiedPart(copied, copiedPaint, original.clone(), matrix, clip,
-                    source.getWidth(), source.getHeight(), alpha, radius, new ClockTransitionAlphaLease<>(source, transitionAlpha)));
+                    source.getWidth(), source.getHeight(), alpha, radius, new ClockTransitionAlphaLease<>(source, transitionAlpha),
+                    ink(source, copied, matrix)));
+        }
+        RectF ink(View source, Object[] copied, Matrix matrix) throws ReflectiveOperationException {
+            String text = (String) copied[7];
+            ClockGlyphCapturePolicy.Plan plan = ClockGlyphCapturePolicy.plan(text.length(),
+                    (Integer) copied[3], (Float) copied[2], (Float) copied[0]);
+            if (plan == null) throw new IllegalArgumentException("ink-plan");
+            RectF result = new RectF();
+            float x = (Float) copied[4], y = (Float) copied[5];
+            if (plan.split()) {
+                if (plan.firstAlpha() > 0f) includeInk(result, (Path) colonPath.get(source), x, y, matrix);
+                if (plan.secondAlpha() > 0f) includeInk(result, (Path) minutePath.get(source),
+                        x + (Float) copied[1], y, matrix);
+            } else includeInk(result, (Path) textPath.get(source), x, y, matrix);
+            if (result.isEmpty()) throw new IllegalArgumentException("empty-ink");
+            return result;
+        }
+        static void includeInk(RectF result, Path path, float x, float y, Matrix matrix) {
+            if (path == null || path.isEmpty()) return;
+            RectF ink = new RectF(); path.computeBounds(ink, true);
+            ink.offset(x, y); matrix.mapRect(ink); result.union(ink);
         }
         Part rebuild(CopiedPart source, Context context) throws ReflectiveOperationException {
             View replica = (View) constructor.newInstance(context);
@@ -445,13 +499,15 @@ final class ClockMaterialPreview {
         final int[] position = new int[2];
         final Candidate owner;
         final Factory reader;
+        final GlyphLayer layer;
         boolean failed, drawn, samplingReady, armed;
         Host(Context context, List<Part> parts, Candidate owner, Factory reader) {
             super(context); this.parts = parts; this.owner = owner; this.reader = reader;
             setAlpha(0f); // Warm window, fonts and native display lists without covering the source.
             setClipChildren(false); setClipToPadding(false);
             setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
-            for (Part part : parts) addView(part.replica());
+            layer = new GlyphLayer(this);
+            addView(layer);
         }
         @Override protected void onAttachedToWindow() {
             super.onAttachedToWindow();
@@ -503,39 +559,28 @@ final class ClockMaterialPreview {
             failed = true; setVisibility(GONE);
             MAIN.post(() -> { if (candidate == owner) close(reason); });
         }
+        void startMotion() {
+            ClockMvpGeometry.Plan p = owner.motion;
+            state = "moving:calibrated-desktop";
+            layer.animate().scaleX(p.scaleX()).scaleY(p.scaleY())
+                    .translationX(p.moveX()).translationY(p.moveY()).setDuration(420L)
+                    .setInterpolator(new PathInterpolator(.22f, 0f, .15f, 1f))
+                    .withEndAction(() -> {
+                        if (candidate != owner) return;
+                        owner.arrived = true;
+                        state = "arrived:calibrated-desktop";
+                        finishAtTarget(owner);
+                    }).start();
+        }
         @Override protected void onMeasure(int width, int height) {
             setMeasuredDimension(MeasureSpec.getSize(width), MeasureSpec.getSize(height));
-            for (Part part : parts) part.replica().measure(MeasureSpec.makeMeasureSpec(part.width(), MeasureSpec.EXACTLY),
-                    MeasureSpec.makeMeasureSpec(part.height(), MeasureSpec.EXACTLY));
+            layer.measure(width, height);
         }
         @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
             getLocationOnScreen(position);
-            for (Part part : parts) {
-                part.replica().layout(0, 0, part.width(), part.height());
-                Matrix matrix = new Matrix(part.screenMatrix()); matrix.postTranslate(-position[0], -position[1]);
-                part.replica().setAnimationMatrix(matrix);
-            }
-        }
-        @Override protected void dispatchDraw(Canvas canvas) {
-            if (failed || !samplingReady) return;
-            try {
-                long time = getDrawingTime();
-                for (int i = 0; i < parts.size(); i++) {
-                    Part part = parts.get(i);
-                    int save = canvas.save();
-                    Rect clip = part.clip();
-                    try {
-                        canvas.clipRect(clip.left - position[0], clip.top - position[1],
-                                clip.right - position[0], clip.bottom - position[1]);
-                        drawChild(canvas, part.replica(), time);
-                    } finally { canvas.restoreToCount(save); }
-                }
-                if (!drawn) { drawn = true; nativeDrawCount++; }
-            } catch (RuntimeException error) {
-                failed = true; setVisibility(GONE);
-                Candidate expected = candidate;
-                MAIN.post(() -> { if (candidate == expected) close("draw-" + error.getClass().getSimpleName()); });
-            }
+            layer.layout(0, 0, r - l, b - t);
+            layer.setPivotX(owner.motion.pivotX() - position[0]);
+            layer.setPivotY(owner.motion.pivotY() - position[1]);
         }
         @Override protected void onConfigurationChanged(Configuration config) {
             super.onConfigurationChanged(config);
@@ -543,4 +588,45 @@ final class ClockMaterialPreview {
             MAIN.post(() -> { if (candidate == expected) close("configuration-changed"); });
         }
     }
+    /** Only this RenderNode moves; the native sampling container stays in screen space. */
+    private static final class GlyphLayer extends ViewGroup {
+        final Host host;
+        GlyphLayer(Host host) {
+            super(host.getContext()); this.host = host;
+            setClipChildren(false); setClipToPadding(false);
+            for (Part part : host.parts) addView(part.replica());
+        }
+        @Override protected void onMeasure(int width, int height) {
+            setMeasuredDimension(MeasureSpec.getSize(width), MeasureSpec.getSize(height));
+            for (Part part : host.parts) part.replica().measure(
+                    MeasureSpec.makeMeasureSpec(part.width(), MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(part.height(), MeasureSpec.EXACTLY));
+        }
+        @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            for (Part part : host.parts) {
+                part.replica().layout(0, 0, part.width(), part.height());
+                Matrix matrix = new Matrix(part.screenMatrix());
+                matrix.postTranslate(-host.position[0], -host.position[1]);
+                part.replica().setAnimationMatrix(matrix);
+            }
+        }
+        @Override protected void dispatchDraw(Canvas canvas) {
+            if (host.failed || !host.samplingReady) return;
+            try {
+                long time = getDrawingTime();
+                for (int i = 0; i < host.parts.size(); i++) {
+                    Part part = host.parts.get(i);
+                    int save = canvas.save();
+                    Rect clip = part.clip();
+                    try {
+                        canvas.clipRect(clip.left - host.position[0], clip.top - host.position[1],
+                                clip.right - host.position[0], clip.bottom - host.position[1]);
+                        drawChild(canvas, part.replica(), time);
+                    } finally { canvas.restoreToCount(save); }
+                }
+                if (!host.drawn) { host.drawn = true; nativeDrawCount++; }
+            } catch (RuntimeException error) { host.fail("draw-" + failure(error)); }
+        }
+    }
+
 }

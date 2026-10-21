@@ -2,6 +2,7 @@
 #include "widget_hooks.h"
 #include "widget_status_socket.h"
 #include "desktop_search.h"
+#include "clock_mvp.h"
 #include "native_install_control.h"
 
 #include <android/log.h>
@@ -81,7 +82,7 @@ Unhook unhook = nullptr;
 void *originalReceiver = nullptr;
 GetString getAction = nullptr, getSender = nullptr;
 GetExtras getExtras = nullptr;
-GetBool getBool = nullptr;
+GetBool getBool = nullptr, getInteger = nullptr;
 std::mutex installMutex;
 std::atomic<bool> enabled{false};
 std::atomic<unsigned> changedLogs{0};
@@ -142,6 +143,16 @@ void receiverHook(void *receiver, void *context, void *intent) {
             bool previous = enabled.exchange(value);
             cacheConfig(value);
             if (previous != value) changedLogs.store(0);
+            bool clockMvp = false;
+            if (readBool(extras, "mhm_clock_mvp_enabled", clockMvp) && getInteger) {
+                constexpr char uidKey[] = "mhm_clock_mvp_uid";
+                uint64_t uid = getInteger(extras, uidKey, sizeof(uidKey) - 1);
+                bool changed = configureClockMvp(clockMvp && uint32_t(uid) == 0,
+                    uint32_t(uid) == 0 ? uint32_t(uid >> 32) : 0);
+                if (changed && !installRequested.exchange(true) && installWake >= 0) {
+                    uint64_t wake = 1; (void)write(installWake, &wake, sizeof(wake));
+                }
+            }
             bool search = false;
             if (readBool(extras, "mhm_desktop_search_4x7", search) && configureDesktopSearch(search)) {
                 if (!installRequested.exchange(true) && installWake >= 0) {
@@ -219,6 +230,7 @@ void install() {
     if (images.dartPath && !androidWidgetPickerHooksSettled())
         installAndroidWidgetPickerHooks(images.dartPath, images.dart, hook, unhook);
     installDesktopSearch(images.dartPath, images.dart, hook, unhook);
+    installClockMvp(images.dartPath, images.dart, hook, unhook);
     int schemaStage = widget_status::schema.load();
     if (schemaStage == widget_status::Incompatible || schemaStage == widget_status::Failed)
         widget_status::bridge.store(schemaStage);
@@ -236,6 +248,7 @@ void install() {
             getSender = reinterpret_cast<GetString>(dlsym(launcher, "Intent_get_sender_package_name"));
             getExtras = reinterpret_cast<GetExtras>(dlsym(launcher, "Intent_get_extras"));
             getBool = reinterpret_cast<GetBool>(dlsym(launcher, "Bundle_get_boolean"));
+            getInteger = reinterpret_cast<GetBool>(dlsym(launcher, "Bundle_get_i32"));
             void *target = dlsym(broadcast, RECEIVER_SYMBOL);
             if (getAction && getSender && getExtras && getBool && target && unhook) {
                 int result = hook(target, reinterpret_cast<void *>(receiverHook), &originalReceiver);
@@ -302,7 +315,7 @@ void *worker(void *) {
             settled = (bridgeAttempted || widget_status::schema.load() == widget_status::Incompatible
                     || widget_status::schema.load() == widget_status::Failed)
                 && calendarAttempted
-                && androidWidgetHooksSettled() && androidWidgetPickerHooksSettled();
+                && androidWidgetHooksSettled() && androidWidgetPickerHooksSettled() && clockMvpSettled();
         }
         now = milliseconds();
         if (!settled && now >= deadline) {

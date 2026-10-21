@@ -32,6 +32,8 @@ final class DesktopClockSettingsBridge {
                         .setPackage("com.miui.home")
                         .putExtra("mhm_desktop_clock_control", true)
                         .putExtra("mhm_desktop_clock_enabled", enabled)
+                        .putExtra("mhm_clock_mvp_enabled", moduleEnabled && preferences.getBoolean("clock_transition_probe_enabled", false))
+                        .putExtra("mhm_clock_mvp_uid", android.os.Process.myUid())
                         .putExtra("mhm_desktop_search_4x7", moduleEnabled && preferences.getBoolean(SEARCH, false))
                         .putExtra("mhm_android_widget_stack", moduleEnabled && preferences.getBoolean(STACK, false))
                         .putExtra("mhm_android_widget_glass", moduleEnabled && preferences.getBoolean(GLASS, false))
@@ -76,7 +78,7 @@ final class DesktopClockSettingsBridge {
             preferences = value;
             if (value != null) {
                 listener = (prefs, key) -> {
-                    if (SEARCH.equals(key) || KEY.equals(key) || STACK.equals(key) || GLASS.equals(key) || EXPERIMENT.equals(key) || AndroidWidgetGlassPolicy.KEY.equals(key) || AndroidWidgetGlassPolicy.CLOCK_STYLE_KEY.equals(key) || WidgetGlassStyles.KEY.equals(key) || "module_hooks_enabled".equals(key))
+                    if ("clock_transition_probe_enabled".equals(key) || SEARCH.equals(key) || KEY.equals(key) || STACK.equals(key) || GLASS.equals(key) || EXPERIMENT.equals(key) || AndroidWidgetGlassPolicy.KEY.equals(key) || AndroidWidgetGlassPolicy.CLOCK_STYLE_KEY.equals(key) || WidgetGlassStyles.KEY.equals(key) || "module_hooks_enabled".equals(key))
                         HANDLER.post(DesktopClockSettingsBridge::publishSoon);
                 };
                 value.registerOnSharedPreferenceChangeListener(listener);
