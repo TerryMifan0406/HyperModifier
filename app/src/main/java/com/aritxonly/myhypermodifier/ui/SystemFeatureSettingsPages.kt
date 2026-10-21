@@ -296,6 +296,13 @@ import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
             { update(settings.copy(forceLockscreenClockColon = it)) },
         )
         SettingsSwitchItem(
+            "锁屏到桌面时钟过渡诊断",
+            "实验准备：仅记录横向时钟边界与解锁时序，不改变动画；更新模块后需重启系统界面",
+            settings.clockTransitionProbeEnabled,
+            { update(settings.copy(clockTransitionProbeEnabled = it)) },
+            enabled = android.os.Build.VERSION.SDK_INT >= 36,
+        )
+        SettingsSwitchItem(
             "时钟渐进避让通知",
             "适用于 AllInOne 时钟，保留音乐封面模式",
             settings.progressiveLockscreenClockAvoidance,

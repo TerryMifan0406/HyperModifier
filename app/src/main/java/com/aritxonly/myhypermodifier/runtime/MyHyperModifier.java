@@ -369,6 +369,7 @@ public final class MyHyperModifier extends XposedModule {
                 installSafely(packageName, "息屏时钟字重", () -> AodClockWeightHooks.install(this, param.getClassLoader()));
                 installSafely(packageName, "锁屏时钟冒号", () -> LockscreenClockColonHooks.install(this, param.getClassLoader()));
                 installSafely(packageName, "锁屏时钟小时前导零", () -> LockscreenClockLeadingZeroHooks.install(this, param.getClassLoader()));
+                installSafely(packageName, "锁屏桌面时钟过渡诊断", () -> LockscreenClockTransitionProbe.install(this, param.getClassLoader()));
                 installSafely(packageName, "绕过 HyperMusicCover 时钟避让", () -> HyperMusicCoverClockHooks.install(this, param.getClassLoader()));
                 installSafely(packageName, "HyperMusicCover 扩展", () -> HyperMusicCoverExtensions.install(this, param.getClassLoader()));
                 installSafely(packageName, "锁屏时钟渐进避让通知", () -> LockscreenClockAvoidanceHooks.install(this, param.getClassLoader()));
@@ -468,6 +469,7 @@ public final class MyHyperModifier extends XposedModule {
         installSafely(SYSTEM_UI, "息屏时钟字重", () -> AodClockWeightHooks.install(this, classLoader));
         installSafely(SYSTEM_UI, "锁屏时钟冒号", () -> LockscreenClockColonHooks.install(this, classLoader));
         installSafely(SYSTEM_UI, "锁屏时钟小时前导零", () -> LockscreenClockLeadingZeroHooks.install(this, classLoader));
+        installSafely(SYSTEM_UI, "锁屏桌面时钟过渡诊断", () -> LockscreenClockTransitionProbe.install(this, classLoader));
         installSafely(SYSTEM_UI, "绕过 HyperMusicCover 时钟避让", () -> HyperMusicCoverClockHooks.install(this, classLoader));
         installSafely(SYSTEM_UI, "HyperMusicCover 扩展", () -> HyperMusicCoverExtensions.install(this, classLoader));
         installSafely(SYSTEM_UI, "锁屏时钟渐进避让通知", () -> LockscreenClockAvoidanceHooks.install(this, classLoader));
