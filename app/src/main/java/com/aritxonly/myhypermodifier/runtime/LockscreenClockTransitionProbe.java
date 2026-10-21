@@ -2,6 +2,7 @@ package com.aritxonly.myhypermodifier;
 
 import android.graphics.Rect;
 import android.os.Build;
+import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
@@ -15,6 +16,7 @@ import java.util.List;
 import java.util.WeakHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
@@ -33,7 +35,14 @@ final class LockscreenClockTransitionProbe {
     private static final AtomicInteger EVENTS = new AtomicInteger();
     private static volatile boolean lastEnabled;
     private static final AtomicBoolean SETTINGS_OBSERVER = new AtomicBoolean();
-    private static Field doubleRow, timeGroup, hour, minute, colon;
+    private static Field doubleRow, editMode, timeGroup, hour, minute, colon;
+    private static ClockGlyphSnapshot.Reader glyphReader;
+    private static final AtomicLong CAPTURE_GENERATION = new AtomicLong();
+    private static ClockGlyphSnapshot prepared; // main thread only; discarded on exit/cancel/off
+    private static final Handler MAIN = new Handler(Looper.getMainLooper());
+    private static final Runnable EXPIRE_CAPTURE = () -> release("timeout");
+    private static volatile String lastCapture = "none", captureState = "idle";
+    private static final ProbeEventHistory HISTORY = new ProbeEventHistory(16);
 
     private LockscreenClockTransitionProbe() {}
 
@@ -47,6 +56,8 @@ final class LockscreenClockTransitionProbe {
             Class<?> mediator = Class.forName("com.android.systemui.keyguard.KeyguardViewMediator", false, loader);
             Class<?> params = Class.forName("com.android.wm.shell.shared.compat.SurfaceTransition$Params", false, loader);
             Class<?> injector = Class.forName("com.android.keyguard.injector.KeyguardViewMediatorInjector", false, loader);
+            glyphReader = new ClockGlyphSnapshot.Reader(Class.forName("com.miui.clock.allInOne.TimeView", false, loader));
+            editMode = field(clock, "mEditMode");
             doubleRow = field(clock, "mDoubleRow"); timeGroup = field(clock, "mTimeGroup");
             hour = field(clock, "mHourView"); minute = field(clock, "mMinuteView"); colon = field(clock, "mColonView");
             Method inflate = clock.getDeclaredMethod("onFinishInflate");
@@ -77,20 +88,29 @@ final class LockscreenClockTransitionProbe {
                     }));
             handles.add(module.hook(detach).setId("clock-transition-probe-detach")
                     .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
-                        if (Looper.myLooper() == Looper.getMainLooper()) CLOCKS.remove((View) chain.getThisObject());
+                        if (Looper.myLooper() == Looper.getMainLooper()) {
+                            CLOCKS.remove((View) chain.getThisObject()); release("source-detached");
+                        }
                         return chain.proceed();
                     }));
             for (Method method : events) {
-                String event = method.getDeclaringClass().getSimpleName() + "." + method.getName();
+                String name = method.getName();
+                String event = method.getDeclaringClass().getSimpleName() + "." + name;
+                boolean prepare = method.getDeclaringClass() == injector && name.equals("keyguardGoingAway");
+                boolean finish = name.equals("onKeyguardExitFinished") || name.equals("cancelKeyguardExitAnimation")
+                        || name.equals("handleCancelKeyguardExitAnimation");
                 handles.add(module.hook(method).setId("clock-transition-probe-" + event)
                         .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
                             // Settings are refreshed by the existing settings listener. No
                             // reload, task lookup, IPC or disk access in these callbacks.
                             if (ModuleSettings.moduleHooksEnabled && ModuleSettings.clockTransitionProbeEnabled) {
                                 EVENTS.incrementAndGet(); lastEvent = event;
+                                if (prepare && LINES.get() < MAX_LINES) capture();
                                 observe(event);
                             }
-                            return chain.proceed();
+                            long generation = CAPTURE_GENERATION.get();
+                            try { return chain.proceed(); }
+                            finally { if (finish) releaseOnMain(name, generation); }
                         }));
                 module.deoptimize(method);
             }
@@ -104,6 +124,10 @@ final class LockscreenClockTransitionProbe {
                 lastEnabled = active;
                 // Called on the existing settings worker, only when this value changes.
                 Log.i(TAG, "CONFIG active=" + active + " install=" + installState);
+                if (!active) MAIN.post(() -> {
+                    if (!ModuleSettings.moduleHooksEnabled || !ModuleSettings.clockTransitionProbeEnabled)
+                        release("disabled");
+                });
             });
             HookDiagnostics.available("com.android.systemui", FEATURE);
         } catch (ReflectiveOperationException | RuntimeException error) {
@@ -124,6 +148,8 @@ final class LockscreenClockTransitionProbe {
                 + ", probeEnabled=" + ModuleSettings.clockTransitionProbeEnabled
                 + ", events=" + EVENTS.get() + ", lines=" + LINES.get()
                 + ", lastEvent=" + lastEvent + ", lastSources=" + sourceCount);
+        out.println("    captureState=" + captureState + " lastCapture=" + lastCapture);
+        for (String entry : HISTORY.snapshot()) out.println("    " + entry);
     }
 
     private static Field field(Class<?> owner, String name) throws NoSuchFieldException {
@@ -134,7 +160,7 @@ final class LockscreenClockTransitionProbe {
         if (LINES.get() >= MAX_LINES || LINES.getAndIncrement() >= MAX_LINES) return;
         long now = SystemClock.uptimeMillis();
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            Log.i(TAG, now + " " + event + " off-main; view snapshot skipped");
+            report(now + " " + event + " off-main; view snapshot skipped");
             return;
         }
         try {
@@ -145,7 +171,8 @@ final class LockscreenClockTransitionProbe {
                     continue;
                 found++;
                 boolean horizontal = !doubleRow.getBoolean(clock);
-                message.append(" clock{horizontal=").append(horizontal).append(",shown=").append(clock.isShown())
+                message.append(" clock{class=").append(clock.getClass().getSimpleName())
+                        .append(",horizontal=").append(horizontal).append(",shown=").append(clock.isShown())
                         .append(",alpha=").append(clock.getAlpha());
                 if (horizontal) {
                     appendBounds(message, "group", (View) timeGroup.get(clock));
@@ -158,11 +185,58 @@ final class LockscreenClockTransitionProbe {
             sourceCount = found;
             message.append(" sources=").append(found);
             if (LINES.get() == MAX_LINES) message.append(" log budget exhausted; restart SystemUI to collect again");
-            Log.i(TAG, message.toString());
+            message.append(" capture=").append(captureState)
+                    .append(" preparedGlyphs=").append(prepared == null ? 0 : prepared.glyphs.size());
+            report(message.toString());
         } catch (ReflectiveOperationException | RuntimeException error) {
             // Observation failure never changes original method arguments/results.
-            Log.w(TAG, now + " " + event + " snapshot unavailable: " + error.getClass().getSimpleName());
+            report(now + " " + event + " snapshot unavailable: " + error.getClass().getSimpleName());
         }
+    }
+
+    private static void report(String message) {
+        HISTORY.add(message); Log.i(TAG, message);
+    }
+
+    private static void capture() {
+        if (Looper.myLooper() != Looper.getMainLooper()) return;
+        release("new-session");
+        try {
+            List<ClockGlyphSnapshot.Glyph> glyphs = ClockGlyphSnapshot.newBuffer();
+            StringBuilder roles = new StringBuilder("sources");
+            for (View clock : CLOCKS.keySet()) {
+                if (!clock.isShown() || !clock.isAttachedToWindow() || clock.getDisplay() == null
+                        || clock.getDisplay().getDisplayId() != 0 || doubleRow.getBoolean(clock)
+                        || editMode.getBoolean(clock)) continue;
+                String role = ClockGlyphCapturePolicy.role(clock.getClass().getName());
+                roles.append(' ').append(role);
+                glyphReader.append(glyphs, role, "hour", (View) hour.get(clock));
+                glyphReader.append(glyphs, role, "minute", (View) minute.get(clock));
+                glyphReader.append(glyphs, role, "colon", (View) colon.get(clock));
+            }
+            ClockGlyphSnapshot snapshot = ClockGlyphSnapshot.of(glyphs, roles.toString());
+            // Unknown roles and glass are recorded, never declared replay-ready.
+            lastCapture = snapshot.summary;
+            prepared = snapshot.glyphs.isEmpty() ? null : snapshot;
+            captureState = prepared == null ? "empty" : "captured-geometry-only";
+            if (prepared != null) MAIN.postDelayed(EXPIRE_CAPTURE, 5000L);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            lastCapture = error.getClass().getSimpleName(); release("capture-failed");
+        }
+    }
+
+    private static void releaseOnMain(String reason, long generation) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            if (CAPTURE_GENERATION.get() == generation) release(reason);
+        } else MAIN.post(() -> {
+            if (CAPTURE_GENERATION.get() == generation) release(reason);
+        });
+    }
+
+    private static void release(String reason) {
+        MAIN.removeCallbacks(EXPIRE_CAPTURE);
+        CAPTURE_GENERATION.incrementAndGet();
+        prepared = null; captureState = "released:" + reason;
     }
 
     private static void appendBounds(StringBuilder out, String label, View view) {

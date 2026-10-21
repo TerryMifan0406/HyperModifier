@@ -11,10 +11,16 @@ root = Path(sys.argv[1])
 contracts = {
     'com/miui/clock/allInOne/AllInOneBase': {
         'methods': ['onFinishInflate()V', 'onDetachedFromWindow()V'],
-        'fields': ['mDoubleRow:Z', 'mTimeGroup:Landroid/view/View;',
+        'fields': ['mDoubleRow:Z', 'mEditMode:Z', 'mTimeGroup:Landroid/view/View;',
                    'mHourView:Lcom/miui/clock/allInOne/TimeView;',
                    'mMinuteView:Lcom/miui/clock/allInOne/TimeView;',
                    'mColonView:Lcom/miui/clock/allInOne/TimeView;'],
+    },
+    'com/miui/clock/allInOne/TimeView': {
+        'fields': ['mTextPath:Landroid/graphics/Path;', 'mColonPath:Landroid/graphics/Path;',
+                   'mMinuteOnlyPath:Landroid/graphics/Path;', 'mDrawTextX:F', 'mDrawTextY:F',
+                   'mColonSplitIndex:I', 'mColonAlpha:F', 'fontAlpha:F', 'mColonAdvanceWidth:F',
+                   'mText:Ljava/lang/String;', 'isMiGlassEffectEnable:Z'],
     },
     'com/android/systemui/keyguard/KeyguardViewMediator': {
         'methods': [
