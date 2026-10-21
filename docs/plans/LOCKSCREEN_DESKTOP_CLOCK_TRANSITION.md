@@ -125,3 +125,39 @@ AllInOne style 1/2/3 有显式分支，其余情况使用资源回退，不能�
 - SHA-256：`541a8938ec8ef8411f68b3780753784f2f4955504a04ca7e9c7776ddaa1a2c65`。
 - 本轮未安装 APK，未启停/重启任何手机进程，未注入触摸，未修改手机设置。
 - 尚未实现动画接管；为满足只读约束，在可人工安装验证的诊断包处交付。
+
+## 第一次真机读取：诊断日志为空
+
+用户确认诊断开关已开启、更新后已手动重启 SystemUI。只读核对安装 APK 的哈希
+与首版诊断包完全一致，SystemUI 已是重启后的新 PID。全部 logcat 缓冲区均无
+`MHMClockTransition`；因此不能宣称观察器已安装或时钟边界已验证。
+
+已保存的系统日志包含：16:04:20.514 `keyguardGoingAway`，16:04:20.544
+`KeyguardService: Starts IRemoteAnimationRunner`，16:04:20.548
+`Finish IRemoteAnimationRunner`。后者是框架回调消息，不能将这 4ms 解释为完整
+视觉动画时长。静态核对这个日志来自 `KeyguardService$1.startAnimation`。
+
+共享库 `/system_ext/framework/Miui-WindowManager-Shell.jar` 已只读拉取，SHA-256
+`b07bdbd819db7f3b2cf8d40d2ffa66b353119b6d020db6c3e121bf11af185cad`；DEX 中有
+`SurfaceTransition$Params`，排除实际系统包完全缺少该类型，但尚不能证明首版
+安装时 ClassLoader 正确解析了所有元数据。
+
+首版存在诊断设计缺口：只有已安装且开关快照为 true 的命中回调才输出标签，
+安装失败交给通用诊断，成功无启动标签；无法从空标签分辨安装失败、设置快照
+未更新、日志被覆盖、回调未命中等情况。修正版增加：
+
+- 直接记录安装解析、成功/失败与相关配置启停，不依赖原始启动日志保留。
+- 通过已有 BackgroundDim/SystemUI dump Hook 输出 `clockTransition` 行：
+  安装状态、Hook 数、模块/诊断开关内存值、已启用事件次数、最后事件/时钟数。
+  dumpsys 只读取原子/volatile 缓存，不跨线程遍历 View，不新增 IPC 端点或轮询。
+- 增加 `KeyguardViewMediatorInjector.keyguardGoingAway()` 和已证实的
+  `KeyguardService$1.startAnimation(...)` 两个低频观察点，仍不修改系统结果。
+- 每个进程最多 64 条事件详情，桌面新增 Hook 仍为 0；离线契约变为 15 项。
+
+这是补齐可观测性和入口覆盖，不是已经确定首版失败根因。下一次需在修正版
+新进程读取 dump 与标签后才能归因。按手机只读约束，本轮不安装或重启。
+
+修正版 `clock-transition-probe-v2`：Release 构建与签名校验通过，390 项 JVM 测试
+通过，15 项本地签名契约通过。APK SHA-256：
+`c0205dfed579793b58cdc75510aaf962020a90f45faa6b80ac51cdea6358deed`。
+新增低频元数据/计数审查完成；未做真机帧率/功耗测量，未验证修正版运行时。

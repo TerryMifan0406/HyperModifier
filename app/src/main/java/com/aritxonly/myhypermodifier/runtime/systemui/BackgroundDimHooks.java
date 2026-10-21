@@ -61,6 +61,7 @@ final class BackgroundDimHooks {
                         Object result = chain.proceed();
                         ensureLoaded();
                         PrintWriter out = (PrintWriter) chain.getArg(0);
+                        LockscreenClockTransitionProbe.dump(out);
                         out.println("  MyHyperModifier backdrop: enabled=" + globalBackgroundDimEnabled
                                 + ", percent=" + globalBackgroundDimPercent
                                 + ", compatCalls=" + shadeBlendCalls + ", finalCalls=" + shadeFinalCalls);

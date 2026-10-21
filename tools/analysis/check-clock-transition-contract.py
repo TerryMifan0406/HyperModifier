@@ -24,8 +24,11 @@ contracts = {
             'cancelKeyguardExitAnimation()V', 'handleCancelKeyguardExitAnimation()V',
         ],
     },
+    'com/android/systemui/keyguard/KeyguardService$1': {
+        'methods': ['startAnimation(Landroid/os/IBinder;Landroid/window/TransitionInfo;Landroid/view/SurfaceControl$Transaction;Landroid/window/IRemoteTransitionFinishedCallback;)V'],
+    },
     'com/android/keyguard/injector/KeyguardViewMediatorInjector': {
-        'methods': ['keyguardUnlockHide(JJLjava/lang/String;)V'],
+        'methods': ['keyguardUnlockHide(JJLjava/lang/String;)V', 'keyguardGoingAway()V'],
     },
 }
 result = []
