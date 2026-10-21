@@ -297,17 +297,10 @@ import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
         )
         SettingsSwitchItem(
             "锁屏到桌面时钟过渡诊断",
-            "实验准备：仅记录横向时钟边界与解锁时序，不改变动画；更新模块后需重启系统界面",
+            "实验：记录横向时钟与解锁时序，每次解锁回桌面后预览原生材质 0.5 秒；更新模块后需重启系统界面",
             settings.clockTransitionProbeEnabled,
             { update(settings.copy(clockTransitionProbeEnabled = it)) },
             enabled = android.os.Build.VERSION.SDK_INT >= 36,
-        )
-        SettingsSwitchItem(
-            "时钟材质承载预览",
-            "需开启过渡诊断；开启后仅试一次：解锁回桌面，在原位置显示原生时钟副本 0.5 秒，不移动到桌面组件",
-            settings.clockMaterialPreviewEnabled,
-            { update(settings.copy(clockMaterialPreviewEnabled = it)) },
-            enabled = android.os.Build.VERSION.SDK_INT >= 36 && settings.clockTransitionProbeEnabled,
         )
         SettingsSwitchItem(
             "时钟渐进避让通知",

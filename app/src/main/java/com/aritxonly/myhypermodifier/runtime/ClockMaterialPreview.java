@@ -37,14 +37,12 @@ final class ClockMaterialPreview {
     private static volatile String state = "off", metadata = "not-requested";
     private static volatile int shownCount, nativeDrawCount;
     private static volatile String targetStatus = "not-seen", lastResult = "none";
-    private static boolean attempted; // main thread: one experiment per explicit enable
 
     static Object token() { return candidate; }
-    static boolean needsPreparation() { return enabled() && !attempted; }
+    static boolean needsPreparation() { return enabled() && candidate == null; }
 
     static boolean enabled() {
-        return ModuleSettings.moduleHooksEnabled && ModuleSettings.clockTransitionProbeEnabled
-                && ModuleSettings.clockMaterialPreviewEnabled;
+        return ModuleSettings.moduleHooksEnabled && ModuleSettings.clockTransitionProbeEnabled;
     }
 
     static void settingsChanged(ClassLoader loader) {
@@ -55,13 +53,12 @@ final class ClockMaterialPreview {
             }
         }
         MAIN.post(() -> {
-            if (!enabled()) { close("disabled"); attempted = false; }
+            if (!enabled()) close("disabled");
         });
     }
 
     static void prepare(List<View> clocks, Field hour, Field minute, Field colon) {
-        if (!enabled() || attempted) return;
-        close("new-session"); attempted = true;
+        if (!needsPreparation()) return;
         Factory reader = factory;
         if (reader == null) { state = "skip:metadata-" + metadata; return; }
         try {
@@ -167,8 +164,7 @@ final class ClockMaterialPreview {
             Factory reader = factory;
             if (reader == null) { close("metadata-lost"); return; }
             for (CopiedPart part : value.parts) replicas.add(reader.rebuild(part, windowContext));
-            value.root = new Host(windowContext, replicas);
-            reader.bindSampling(value.root, replicas);
+            value.root = new Host(windowContext, replicas, value, reader);
             value.manager = windowContext.getSystemService(WindowManager.class);
             WindowManager.LayoutParams params = new WindowManager.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
@@ -181,11 +177,8 @@ final class ClockMaterialPreview {
             params.setFitInsetsTypes(0);
             params.setTitle("MHM clock material experiment");
             value.manager.addView(value.root, params);
-            reader.enableSampling(value.root, value.parts.get(0).blurRadius());
-            value.shown = true; shownCount++;
-            state = "shown:native-sampling-container-unverified";
-            MAIN.removeCallbacks(value.timeout);
-            MAIN.postDelayed(value.timeout, 500L);
+            if (!value.shown) state = "window-added:awaiting-attach";
+            // Keep preparation watchdog until onAttachedToWindow has initialized sampling.
         } catch (ReflectiveOperationException | RuntimeException error) { close("window-" + failure(error)); }
     }
 
@@ -242,7 +235,7 @@ final class ClockMaterialPreview {
 
     private static final class Factory {
         final Constructor<?> constructor;
-        final Field paint, glass, data, style, transparency;
+        final Field paint, glass, data, style, transparency, passEnabled;
         final Method chooseContainer, passWindow, backgroundMode, glassRadius, excludeBelow;
         final Field[] values;
         final Method applyGlass, flags, changes, task, mode, activityType;
@@ -250,6 +243,7 @@ final class ClockMaterialPreview {
         Factory(ClassLoader loader) throws ReflectiveOperationException {
             Class<?> time = Class.forName("com.miui.clock.allInOne.TimeView", false, loader);
             constructor = time.getConstructor(Context.class);
+            passEnabled = field(View.class, "mNeedPassWindowBlur");
             style = field(time, "clockStyleInfo");
             transparency = field(Class.forName("com.miui.clock.module.ClockStyleInfo", false, loader), "glassTransparency");
             paint = field(time, "textPaint"); glass = field(time, "isMiGlassEffectEnable"); data = field(time, "glassData");
@@ -333,8 +327,12 @@ final class ClockMaterialPreview {
         void enableSampling(Host host, int radius) throws ReflectiveOperationException {
             // Same glass-container branch as ClockEffectUtils; one host for both native digits.
             // Invoke cached platform methods directly so failures are not swallowed by wrappers.
-            Object enabled = passWindow.invoke(host, true);
-            if (!Boolean.TRUE.equals(enabled)) throw new IllegalStateException("pass-window-refused");
+            if (!host.isAttachedToWindow()) throw new IllegalStateException("sampling-before-attach");
+            Object changed = passWindow.invoke(host, true);
+            // Framework returns false both for deferral and for an already-enabled request.
+            // Check the resulting state, not whether this call changed it.
+            if (!passEnabled.getBoolean(host))
+                throw new IllegalStateException("pass-window-disabled:changed=" + changed);
             backgroundMode.invoke(host, 1);
             glassRadius.invoke(host, radius, radius);
             excludeBelow.invoke(host, true);
@@ -352,12 +350,33 @@ final class ClockMaterialPreview {
     private static final class Host extends ViewGroup {
         final List<Part> parts;
         final int[] position = new int[2];
-        boolean failed, drawn;
-        Host(Context context, List<Part> parts) {
-            super(context); this.parts = parts;
+        final Candidate owner;
+        final Factory reader;
+        boolean failed, drawn, samplingReady;
+        Host(Context context, List<Part> parts, Candidate owner, Factory reader) {
+            super(context); this.parts = parts; this.owner = owner; this.reader = reader;
             setClipChildren(false); setClipToPadding(false);
             setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
             for (Part part : parts) addView(part.replica());
+        }
+        @Override protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            if (candidate != owner || !enabled()) { fail("stale-attach"); return; }
+            try {
+                reader.enableSampling(this, owner.parts.get(0).blurRadius());
+                reader.bindSampling(this, parts);
+                samplingReady = true;
+                owner.shown = true; shownCount++;
+                state = "shown:native-sampling-container-unverified";
+                MAIN.removeCallbacks(owner.timeout);
+                MAIN.postDelayed(owner.timeout, 500L);
+            } catch (ReflectiveOperationException | RuntimeException error) {
+                fail("sampling-" + failure(error));
+            }
+        }
+        private void fail(String reason) {
+            failed = true; setVisibility(GONE);
+            MAIN.post(() -> { if (candidate == owner) close(reason); });
         }
         @Override protected void onMeasure(int width, int height) {
             setMeasuredDimension(MeasureSpec.getSize(width), MeasureSpec.getSize(height));
@@ -373,7 +392,7 @@ final class ClockMaterialPreview {
             }
         }
         @Override protected void dispatchDraw(Canvas canvas) {
-            if (failed) return;
+            if (failed || !samplingReady) return;
             try {
                 long time = getDrawingTime();
                 for (int i = 0; i < parts.size(); i++) {

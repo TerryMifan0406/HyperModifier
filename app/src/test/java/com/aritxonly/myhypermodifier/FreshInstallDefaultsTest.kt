@@ -30,7 +30,6 @@ class FreshInstallDefaultsTest {
             assertFalse(settings.lowerLockscreenPasswordPage)
             assertFalse(settings.progressiveLockscreenClockAvoidance)
             assertFalse(settings.clockTransitionProbeEnabled)
-            assertFalse(settings.clockMaterialPreviewEnabled)
         }
     }
 

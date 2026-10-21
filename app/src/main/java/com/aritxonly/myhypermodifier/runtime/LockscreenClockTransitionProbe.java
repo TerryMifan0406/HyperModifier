@@ -221,29 +221,32 @@ final class LockscreenClockTransitionProbe {
         if (Looper.myLooper() != Looper.getMainLooper()) return;
         release("new-session");
         try {
-            List<ClockGlyphSnapshot.Glyph> glyphs = ClockGlyphSnapshot.newBuffer();
+            boolean geometry = LINES.get() < MAX_LINES;
+            List<ClockGlyphSnapshot.Glyph> glyphs = geometry ? ClockGlyphSnapshot.newBuffer() : null;
             List<View> previewSources = ClockMaterialPreview.needsPreparation() ? new ArrayList<>() : null;
-            StringBuilder roles = new StringBuilder("sources");
+            StringBuilder roles = geometry ? new StringBuilder("sources") : null;
             for (View clock : CLOCKS.keySet()) {
                 if (!clock.isShown() || !clock.isAttachedToWindow() || clock.getDisplay() == null
                         || clock.getDisplay().getDisplayId() != 0 || doubleRow.getBoolean(clock)
                         || editMode.getBoolean(clock)) continue;
                 if (previewSources != null) previewSources.add(clock);
-                String role = ClockGlyphCapturePolicy.role(clock.getClass().getName());
-                roles.append(' ').append(role);
-                glyphReader.append(glyphs, role, "hour", (View) hour.get(clock));
-                glyphReader.append(glyphs, role, "minute", (View) minute.get(clock));
-                glyphReader.append(glyphs, role, "colon", (View) colon.get(clock));
+                if (geometry) {
+                    String role = ClockGlyphCapturePolicy.role(clock.getClass().getName());
+                    roles.append(' ').append(role);
+                    glyphReader.append(glyphs, role, "hour", (View) hour.get(clock));
+                    glyphReader.append(glyphs, role, "minute", (View) minute.get(clock));
+                    glyphReader.append(glyphs, role, "colon", (View) colon.get(clock));
+                }
             }
-            ClockGlyphSnapshot snapshot = ClockGlyphSnapshot.of(glyphs, roles.toString());
-            // Unknown roles and glass are recorded, never declared replay-ready.
-            lastCapture = snapshot.summary;
-            prepared = snapshot.glyphs.isEmpty() ? null : snapshot;
-            captureState = prepared == null ? "empty" : "captured-geometry-only";
-            if (prepared != null) {
-                MAIN.postDelayed(EXPIRE_CAPTURE, 5000L);
-                if (previewSources != null) ClockMaterialPreview.prepare(previewSources, hour, minute, colon);
-            }
+            if (geometry) {
+                ClockGlyphSnapshot snapshot = ClockGlyphSnapshot.of(glyphs, roles.toString());
+                // Unknown roles and glass are recorded, never declared replay-ready.
+                lastCapture = snapshot.summary;
+                prepared = snapshot.glyphs.isEmpty() ? null : snapshot;
+                captureState = prepared == null ? "empty" : "captured-geometry-only";
+                if (prepared != null) MAIN.postDelayed(EXPIRE_CAPTURE, 5000L);
+            } else captureState = "preview-only:geometry-budget-exhausted";
+            if (previewSources != null) ClockMaterialPreview.prepare(previewSources, hour, minute, colon);
         } catch (ReflectiveOperationException | RuntimeException error) {
             lastCapture = error.getClass().getSimpleName(); release("capture-failed");
         }
