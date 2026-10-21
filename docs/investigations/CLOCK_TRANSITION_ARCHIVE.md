@@ -9,9 +9,14 @@
 - Git 分支 `codex/archive-clock-transition-mvp-v10`，指向 `eb7ee93`。
 - 实验设计、设备证据和各阶段记录在该分支的
   `docs/plans/LOCKSCREEN_DESKTOP_CLOCK_TRANSITION.md`。
-- 签名 Release 保留在工作区 `HyperModifier-v1.5.2-clock-native-font-v10.apk`。
+- 签名 Release 保留在仓库外
+  `/Users/aritxonly/Builds/MyHyperModifier/2026-10-21/HyperModifier-v1.5.2-clock-native-font-v10.apk`。
   SHA256 `7894a504df3db8a53816c64f8cebe091bf255a8631374d3da6c04a0cd93f059c`。
   APK 未提交 Git，已通过飞书发送给用户；不依赖临时目录恢复代码。
+
+2026-10-21 按用户要求，将根目录全部 7 个 APK 移至上述仓库外目录，逐一校验
+SHA256 后移除根目录副本；后续交付产物继续放仓库外，不再发送飞书。Gradle
+中间产物使用常规 `app/build/` 目录，不在仓库根目录额外复制 APK。
 
 查看归档源码可使用 `git show codex/archive-clock-transition-mvp-v10:<path>`。
 未来恢复建议从归档分支建立新的工作分支，在当前系统版本重新验证接口和效果；
