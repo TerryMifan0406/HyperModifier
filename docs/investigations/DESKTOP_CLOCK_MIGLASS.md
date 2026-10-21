@@ -1,8 +1,8 @@
 # 桌面原生时钟接入 MiGlass 的初步取证
 
 2026-10-21。用户要求终止一镜到底实验，保留版本，并研究默认经典桌面时钟能否
-接入原生柔光玻璃。当前结论：**已有可复用的原生材质通道，值得做定向原型；
-尚未证明普通 DateTime 数字可以直接获得玻璃笔画效果。** 本轮不新增运行时
+接入原生柔光玻璃。当前结论：**已有原生材质与路径轮廓两个候选通道，值得做
+定向原型；尚未证明二者组合可使普通 DateTime 获得玻璃笔画效果。** 本轮不新增运行时
 Hook、不生成宣称已支持 MiGlass 的设置开关，不安装/重启/触摸或改写手机资源。
 
 ## 回滚与归档
@@ -114,3 +114,57 @@ formatExp 为 HH:mm/h:mm，字体来自 font_path_style_plus，字号 96*scale�
 Hook、轮询、IPC、窗口、截图或 GPU 层。未来原型的背景采样/滤镜/遮罩可能增加
 GPU 带宽和渲染 pass，须用同设备同操作的 Perfetto/FrameTimeline/分配采样验证；
 本轮不能给出可用性、帧率或功耗改善结论。
+
+## 第二轮：区分路径裁剪与字形折射
+
+用户要求继续做玻璃时钟后，只读再次核对设备，默认经典时钟仍为上述 493 /
+101390060 / 40130。读取现有日志未命中材质能力或 MAML 裁剪诊断，不能据此
+判断能力关闭或该路径不存在。本轮没有清日志、安装、重启或操纵界面。
+
+### 新确认的路径轮廓入口
+
+`ElementGroup::on_create_child` 同一 Layer 构建分支先加载 HyperMaterialHolder，
+再扫描 `ViewOutlineProvider` 子元素。不是仅从二进制里找到两个不相干的字符串：
+
+| 当前 MAML RVA | 原生读取与后续处理 |
+| --- | --- |
+| 0x4bd8d4 | 调用 HyperMaterialHolder::load |
+| 0x4bd90c / 0x4bd954 | 引用 ViewOutlineProvider，按 19 字节比较子标签 |
+| 0x4bdd44 / 0x4be238 | 比较 rect / path 两种类型；分别写入类型 1 / 2 |
+| 0x4be37c / 0x4be388 | 引用 pathData，helper 0x5d5ad0 以长度 8 尾调 Element::get_attribute |
+| 0x4be3b0 / 0x4be6b4 | 将 pathData 解析成表达式，再创建 RootExpression |
+| 0x4be6cc | 读取 scaleToFit；当前路径解析为数值枚举，不能猜写字符串 fit/center |
+| 0x53fd74 | FFIOutlineProperties::from_data 转换类型、边界、半径、路径指针/长度和缩放策略 |
+
+这为字形轮廓裁剪提供了具体候选入口。`pathData` 是表达式属性，静态 SVG 路径
+也要作为字符串表达式处理；不能把裸 `M...L...Z` 当成已验证的有效表达式。
+上述 RVA 用于复现反汇编，不作为新运行时 Hook 的固定地址。
+
+桌面 Dart AOT 中 0x13662c8 所在轮廓计算例程包含实际 `[MAML][CLIP] outline
+computed` 输出（字符串引用 0x136663c）；邻近 0x136700c 例程使用 SVG 路径解析
+逻辑（调用 0x194a83c、0x194b344），并有路径缩放处理。这比普通 IconConfig
+路径字符串更接近目标 Layer，但**尚未核对完整 Flutter widget 嵌套与裁剪顺序**，
+不能宣称已经证明玻璃背景会被该轮廓裁剪。
+
+### 引擎 SDF/Mask 不等同于文字遮罩
+
+补充脚本现可复现两组直接调用：
+
+- `Canvas::SaveLayer` 的 0xc2aadc 调用 `DrawHyperMaterial`（0xc314e8），后者的
+  0xc31620 调用 `FindGlassFilter`。当前确认的是背景层材质路径。
+- `MiGlassContents::Render` 在 0xd5d9e4 / 0xd5dbf0 调用
+  `MiRenderHelper::GetOrCreateSdfTexture`（0xd6429c）。该函数接受矩形和三个
+  float，按几何尺寸/半径等值构造缓存键；查看这条实现没有获得文字路径输入的证据。
+- 同一 Render 的 0xd5de60 / 0xd5e010 调用 `TryCacheCreateLightMask`，
+  V13 shader 的 `BindUMaskTex` 调用位于 0xd5f290。该遮罩与 IconLightMaskParams
+  及光照缓存相关，不能凭 UMaskTex 名字认定为任意字形 alpha 输入。
+
+直接调用扫描不涵盖间接/虚调用与内联，因此结论是**已定位路径没有证明文字 SDF**，
+而非断言整套引擎绝不支持。即使外部 ClipPath 可以裁出数字，圆角矩形 SDF 也
+不会因此自动变为数字笔画距离场；需要逐项验收洞口透明、笔画边缘高光与折射方向。
+
+完整调用点、当前库散列及轮廓属性引用已纳入 `inspect-maml-material.py` 输出。
+原始反汇编保留在忽略目录 `reference/desktop-miglass-20261021/`，不提交原始库。
+当前没有可交付的玻璃时钟 APK；不加一个暂未接通的设置开关，也不修改原字体、
+分钟更新器或帧率。下一阶段的最小验证和性能边界见
+[原型计划](../plans/DESKTOP_CLOCK_MIGLASS.md)。
