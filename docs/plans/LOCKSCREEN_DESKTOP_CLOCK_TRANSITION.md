@@ -261,3 +261,34 @@ APK：`HyperModifier-v1.5.2-clock-glyph-probe-v3.apk`，SHA-256：
 `2d45ade998fbdb15b246bbc4901fcfbe89b1c3481f7af5a8a24d3ade035291ec`。
 本轮未安装到手机，实际字形边界、角色组合和会话释放仍待人工安装后的只读验证。
 没有进行真机 CPU/分配、帧率或耗电测量，不声称性能已有提升。
+
+## v3 一次性字形准备的真机结果
+
+只读 SystemUI dump 确认：`installed, hooks=10, moduleEnabled=true,
+probeEnabled=true, events=22, lines=22, lastSources=2`。
+`captureState=released:onKeyguardExitFinished`，保存的纯数值汇总为：
+
+| 来源 | 字形屏幕边界（px） | alpha | 玻璃标记 |
+| --- | --- | --- | --- |
+| AllInOneHourClock / HOUR_CLOCK/hour | `[135.60576,563.50714,508.98404,1236.1442]` | 1 | true |
+| AllInOneMinuteClock / MINUTE_CLOCK/minute | `[545.2754,563.50714,1079.1239,1236.1442]` | 1 | true |
+
+两者顶/底一致、横向不重合，联合几何边界约为
+`[135.61,563.51,1079.12,1236.14]`，大小约 `943.52×672.64`。
+这证实日志中的两个实例是小时/分钟分路，不能把重合的 View 容器当成重复时钟。
+minute 路径可能包含冒号，路径数量本身不能推断当前冒号样式；不能据此擅自补冒号。
+
+有限历史保留了准备、内部退出和结束前的 `preparedGlyphs=2`；dump 显示结束后
+已释放。这一次保留的链中源 View 仍 shown=true，因此验证的是跨回调保留与
+结束释放，尚未验证本版在源隐藏时的实际视觉复现（它也尚未绘制任何内容）。
+例如 uptime `17024909 → 17024962 → 17025051`：准备、inner、结束入口，相差
+0 / 53 / 142ms。这些仍是回调时差，不是动画逐帧持续时间。
+
+**下一阶段材质约束**：两路均 `glass=true`，路径快照只证明几何准备成功。
+普通 Canvas.drawPath 不会保留原生玻璃采样/RenderNode 状态，也不能把复制 Paint
+当成完整材质迁移。原型下一关应先验证 SystemUI 临时承载能否正确复用原生
+TimeView 的材质初始化与背景采样，再决定是否支持当前玻璃样式。未验证前
+不展示伪装成完整复现的纯色时钟，不延长系统认证/退出完成过程。
+
+下一关还需确认临时承载层生命周期、解锁目标确为桌面以及 MAML 数字的实际
+目标边界；目前未增加桌面 Hook。本轮未安装、重启、触摸或修改手机设置。
