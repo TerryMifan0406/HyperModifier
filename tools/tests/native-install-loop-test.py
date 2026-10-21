@@ -151,7 +151,7 @@ bool configureDesktopSearch(bool value) { return value; }
 void loadDesktopSearchConfig() {}
 void loadClockGlassConfig() {}
 bool configureClockGlass(unsigned value) { return value != 0; }
-void installClockGlass(ClockGlassImage, ClockGlassImage, WidgetNativeHook, WidgetNativeUnhook) {}
+void installClockGlass(ClockGlassImage, ClockGlassImage, WidgetNativeHook, WidgetNativeUnhook, void (*)()) {}
 bool configureAndroidWidgets(bool, bool, void *) { return true; }
 void loadAndroidWidgetConfig() {}
 int backendHook(void *target, void *, void **trampoline) {

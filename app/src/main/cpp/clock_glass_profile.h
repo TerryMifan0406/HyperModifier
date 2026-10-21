@@ -24,7 +24,11 @@ inline constexpr Contract kFlutterContracts[] = {
     {0x7ed600, 0x7c, UINT64_C(0x2ca6fcf5ea51991b)}, // DropDlPath: _ZN7flutter6DlPathD2Ev
     {0x87b008, 0x78, UINT64_C(0xb6cdd9ee5aca9a24)}, // DropPathRef: _ZN6SkPathD2Ev
     {0x7e0328, 0xbb4, UINT64_C(0xf1186952fb8f8452)}, // SetPaint: _ZN7flutter18DisplayListBuilder22SetAttributesFromPaintERKNS_7DlPaintENS_25DisplayListAttributeFlagsE
-    {0x7d33a0, 0x35c, UINT64_C(0x2748dd55203b68f1)}, // DrawPath: _ZN7flutter18DisplayListBuilder8drawPathERKNS_6DlPathE
+    {0x7d1700, 0x4, UINT64_C(0x6ad9c774c740cd8b)}, // ClipPath: _ZN7flutter18DisplayListBuilder8clipPathERKNS_6DlPathENS_8DlClipOpEb
+    {0x7cdc9c, 0x3bc, UINT64_C(0xf8f54592dfd1c6bd)}, // ClipPathBody: _ZN7flutter18DisplayListBuilder8ClipPathERKNS_6DlPathENS_8DlClipOpEb
+    {0x7d1ea4, 0x31c, UINT64_C(0x6d7f6ac5e221cd)}, // DrawRect: _ZN7flutter18DisplayListBuilder8drawRectERKN8impeller5TRectIfEE
+    {0xc46b88, 0x1328, UINT64_C(0xd768ea982a88140f)}, // ReplayRect: _ZN8impeller16DlDispatcherBase8drawRectERKNS_5TRectIfEE
+    {0xc310e8, 0x254, UINT64_C(0xca42ba987248cf06)}, // ConsumePending: _ZN8impeller13PassBlurState17ConsumePendingAHBEv
     {0x7cbaf0, 0xa4, UINT64_C(0x40450d9712d89b60)}, // Save: _ZN7flutter18DisplayListBuilder4saveEv
     {0x7cb950, 0x4, UINT64_C(0xebd352d65b79d979)}, // Restore: _ZN7flutter18DisplayListBuilder7restoreEv
     {0x7d1698, 0x4, UINT64_C(0x34ad5ee71499d5fd)}, // Translate: _ZN7flutter18DisplayListBuilder9translateEff
@@ -35,8 +39,12 @@ inline constexpr uintptr_t kDlPath = kFlutterContracts[2].rva;
 inline constexpr uintptr_t kDropDlPath = kFlutterContracts[3].rva;
 inline constexpr uintptr_t kDropPathRef = kFlutterContracts[4].rva;
 inline constexpr uintptr_t kSetPaint = kFlutterContracts[5].rva;
-inline constexpr uintptr_t kDrawPath = kFlutterContracts[6].rva;
-inline constexpr uintptr_t kSave = kFlutterContracts[7].rva;
-inline constexpr uintptr_t kRestore = kFlutterContracts[8].rva;
-inline constexpr uintptr_t kTranslate = kFlutterContracts[9].rva;
+inline constexpr uintptr_t kClipPath = kFlutterContracts[6].rva;
+inline constexpr uintptr_t kClipPathBody = kFlutterContracts[7].rva;
+inline constexpr uintptr_t kDrawRect = kFlutterContracts[8].rva;
+inline constexpr uintptr_t kReplayRect = kFlutterContracts[9].rva;
+inline constexpr uintptr_t kConsumePending = kFlutterContracts[10].rva;
+inline constexpr uintptr_t kSave = kFlutterContracts[11].rva;
+inline constexpr uintptr_t kRestore = kFlutterContracts[12].rva;
+inline constexpr uintptr_t kTranslate = kFlutterContracts[13].rva;
 }

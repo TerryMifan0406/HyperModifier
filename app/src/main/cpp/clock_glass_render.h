@@ -25,8 +25,16 @@ public:
     static unsigned current() { return mode; }
 };
 inline constexpr size_t kPaintSize = 0x138;
-inline constexpr uint64_t kMaterialFlags = (UINT64_C(1) << 19) | (UINT64_C(1) << 20) | (UINT64_C(1) << 27);
-inline constexpr uint64_t kPathFlags = UINT64_C(0x1b08203fdb4) | kMaterialFlags;
+inline constexpr uint64_t kMaterialFlags = (UINT64_C(1) << 19) | (UINT64_C(1) << 20);
+inline constexpr uint64_t kRestoreFlags = kMaterialFlags | (UINT64_C(1) << 10);
+inline constexpr uint64_t kRectFlags = UINT64_C(0x2087fbfc24) | kRestoreFlags;
+inline constexpr int32_t kBlurMarker = 0x4d484d43;
+struct Rect { float left, top, right, bottom; };
+inline uint32_t tintComponent(float value) {
+    if (!std::isfinite(value) || value <= 0.f) return 0;
+    if (value >= 1.f) return 255;
+    return static_cast<uint32_t>(value * 255.f + .5f);
+}
 // These are engine-owned object ABIs, not definitions of foreign C++ classes.
 // GetPath writes a 16-byte SkPath to x0. The LTO-specialized SkPath destructor
 // at kDropPathRef takes the *contained SkPathRef*, not a SkPath address.
@@ -36,14 +44,17 @@ struct Renderer {
     void (*dropDlPath)(void *) = nullptr;
     void (*dropPathRef)(void *) = nullptr;
     void (*setPaint)(void *, const void *, uint64_t) = nullptr;
-    void (*drawPath)(void *, const void *) = nullptr;
+    void (*clipPath)(void *, const void *, uint32_t, bool) = nullptr;
+    void (*drawRect)(void *, const Rect *) = nullptr;
     void (*save)(void *) = nullptr;
     void (*restore)(void *) = nullptr;
     void (*translate)(void *, float, float) = nullptr;
 
     bool draw(void *painter, const void *blobRef, float x, float y,
             const void *variant, unsigned mode) const {
-        if (!mode || !painter || !blobRef || !variant
+        // BloomStroke's native dispatch is not a glyph-edge glass renderer.
+        // Until that capability exists, the glass selection keeps stock text.
+        if (mode != Blur || !painter || !blobRef || !variant
                 || read<uint32_t>(variant, 0x50) != 1 || read<uint8_t>(painter, 0x18) != 1) return false;
         void *blob = read<void *>(blobRef);
         void *builder = read<void *>(painter, 8);
@@ -61,8 +72,18 @@ struct Renderer {
                 || read<uint8_t>(builder, 0xf1) || read<uint8_t>(builder, 0x110)
                 || read<void *>(source, 0xf8) || read<void *>(source, 0x108)
                 || read<void *>(source, 0x118)) return false;
-        x += read<float>(blob, 4); y += read<float>(blob, 8);
-        if (!std::isfinite(x) || !std::isfinite(y)) return false;
+        float left = read<float>(blob, 4), top = read<float>(blob, 8);
+        Rect bounds{0.f, 0.f, read<float>(blob, 12) - left, read<float>(blob, 16) - top};
+        x += left; y += top;
+        // PassBlur's texture opacity does not consume this text's alpha. Keep
+        // the original text path during opacity animations rather than pop.
+        if (alpha != 1.f || !std::isfinite(x) || !std::isfinite(y)
+                || !std::isfinite(bounds.right) || !std::isfinite(bounds.bottom)
+                || bounds.right <= 0.f || bounds.bottom <= 0.f) return false;
+        // Keep the rectangle's own AA edge outside the glyph clip. Otherwise
+        // tight blob bounds can multiply edge coverage and thin outer strokes.
+        bounds.left = bounds.top = -1.f;
+        bounds.right += 1.f; bounds.bottom += 1.f;
         alignas(16) unsigned char path[16]{};
         getPath(path, blob);
         void *ref = read<void *>(path);
@@ -78,32 +99,30 @@ struct Renderer {
         // may have been set by another draw. Restore that exact material state,
         // including inactive parameters, rather than guessing from this text.
         const auto *builderPaint = static_cast<const unsigned char *>(builder) + 0xc8;
+        put<uint16_t>(previous, 0, (read<uint16_t>(previous) & ~uint16_t{0x4000})
+            | (read<uint16_t>(builderPaint) & 0x4000));
         std::memcpy(previous + 0x29, builderPaint + 0x29, 1);
         std::memcpy(previous + 0x2c, builderPaint + 0x2c, 0x18);
-        std::memcpy(previous + 0x48, builderPaint + 0x48, 0x64);
+        put<uint16_t>(paint, 0, read<uint16_t>(paint) | uint16_t{0x4000});
         paint[0x29] = 1;
         put<float>(paint, 0x3c, 12.f);
-        if (mode == SoftGlass) {
-            paint[0x48] = 1;
-            put<float>(paint, 0x4c, 0.f); put<float>(paint, 0x50, 1.2f);
-            put<float>(paint, 0x54, 1.5f); put<float>(paint, 0x58, .7f);
-            paint[0x5c] = 0; // Keep native fill visible if the material is unavailable.
-            put<float>(paint, 0x60, .15f); put<float>(paint, 0x64, 1.f);
-            put<float>(paint, 0x68, 1.f); put<float>(paint, 0x6c, 0.f);
-            put<float>(paint, 0x70, .1f);
-            put<float>(paint, 0x74, -.4f); put<float>(paint, 0x78, -.6f);
-            put<float>(paint, 0x7c, 1.f); put<float>(paint, 0x80, .6f);
-            put<float>(paint, 0x84, .2f); put<float>(paint, 0x88, .8f);
-            put<float>(paint, 0x8c, .1f); put<float>(paint, 0x90, 1.f);
-            put<float>(paint, 0x94, .2f); put<float>(paint, 0x98, .8f);
-            put<float>(paint, 0x9c, 1.f); put<float>(paint, 0xa0, 1.f);
-            put<float>(paint, 0xa4, 1.f); put<float>(paint, 0xa8, 0.f);
-        }
+        // One explicit 20% source-over tint, following the stock text color.
+        // Pure backdrop blur is invisible over a uniform wallpaper. Do not
+        // inherit opaque/default blend colors from an unrelated paint field.
+        paint[0x2c] = 3; paint[0x2d] = paint[0x2e] = 0xff;
+        put<uint32_t>(paint, 0x30, UINT32_C(0x33000000)
+            | (tintComponent(read<float>(source, 8)) << 16)
+            | (tintComponent(read<float>(source, 12)) << 8)
+            | tintComponent(read<float>(source, 16)));
+        put<int32_t>(paint, 0x40, kBlurMarker);
         save(builder); translate(builder, x, y);
-        setPaint(builder, paint, kPathFlags);
-        drawPath(builder, dlPath);
+        clipPath(builder, dlPath, 1, true); // intersect; AA glyph clip, including counters/holes
+        setPaint(builder, paint, kRectFlags);
+        // Only the engine's rectangle dispatcher consumes PassBlur and samples
+        // its window texture. DrawPath/DrawText silently ignore this attribute.
+        drawRect(builder, &bounds);
         // DisplayList save/restore covers transforms/clips, not paint attrs.
-        setPaint(builder, previous, kMaterialFlags);
+        setPaint(builder, previous, kRestoreFlags);
         restore(builder);
         dropDlPath(dlPath); dropPathRef(ref);
         return true;

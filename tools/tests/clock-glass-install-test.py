@@ -37,7 +37,7 @@ int backend(void *, void *, void **out) {
 int undo(void *) { ++rollbacks; return 0; }
 void reset(unsigned mode=Blur) {
     configured.store(mode); ready.store(false); attempted=false;
-    hooks=rollbacks=failAt=nullAt=0; originalText=originalParagraph=nullptr;
+    hooks=rollbacks=failAt=nullAt=0; originalText=originalParagraph=originalRect=nullptr;
 }
 int main(int, char **argv) {
     std::ifstream m(argv[1],std::ios::binary), f(argv[2],std::ios::binary);
@@ -61,7 +61,7 @@ int main(int, char **argv) {
     installClockGlass(mi,fi,backend,undo); assert(!hooks);
     reset(); maml[kTextScope]^=1; installClockGlass(mi,fi,backend,undo);
     assert(attempted && !hooks); maml[kTextScope]^=1;
-    for (unsigned failed : {1u,2u}) {
+    for (unsigned failed : {1u,2u,3u}) {
         reset(); failAt=failed; installClockGlass(mi,fi,backend,undo);
         assert(!ready && hooks==failed && rollbacks==failed-1);
         for(unsigned i=0;i<10000;i++) installClockGlass(mi,fi,backend,undo);
@@ -69,11 +69,12 @@ int main(int, char **argv) {
         reset(); nullAt=failed; installClockGlass(mi,fi,backend,undo);
         assert(!ready && hooks==failed && rollbacks==failed);
     }
-    reset(SoftGlass); installClockGlass(mi,fi,backend,undo);
-    assert(ready && hooks==2 && !rollbacks);
-    configured.store(Default); installClockGlass(mi,fi,backend,undo); assert(hooks==2);
-    configured.store(Blur); installClockGlass(mi,fi,backend,undo); assert(hooks==2);
-    std::cout << "Material installer: both real ELF contracts, 15 code mutations, lazy/late load, transactional rollback, occupied targets and terminal failures passed\n";
+    reset(SoftGlass); installClockGlass(mi,fi,backend,undo); assert(!hooks && !attempted);
+    reset(Blur); installClockGlass(mi,fi,backend,undo);
+    assert(ready && hooks==3 && !rollbacks);
+    configured.store(Default); installClockGlass(mi,fi,backend,undo); assert(hooks==3);
+    configured.store(Blur); installClockGlass(mi,fi,backend,undo); assert(hooks==3);
+    std::cout << "Material installer: both real ELF contracts, 19 code mutations, lazy/late load, transactional rollback, occupied targets and terminal failures passed\n";
 }
 '''
 with tempfile.TemporaryDirectory(prefix='mhm-clock-material-') as tmp:

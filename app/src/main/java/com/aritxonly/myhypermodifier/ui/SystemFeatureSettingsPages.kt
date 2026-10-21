@@ -258,7 +258,8 @@ import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
         )
         WindowDropdownPreference(
             title = "桌面时钟材质（实验）",
-            summary = "默认经典时钟的主时间；需桌面与系统界面作用域。切换后在下次时钟重绘时生效",
+            summary = if (settings.desktopClockMaterial == 2) "柔光玻璃尚未接通，暂保留系统原绘制"
+                else "默认经典时钟的主时间；模糊需可用的背景纹理，下次时钟重绘时生效",
             items = listOf("默认", "模糊", "柔光玻璃"),
             selectedIndex = settings.desktopClockMaterial.let { if (it in 0..2) it else 0 },
             onSelectedIndexChange = { update(settings.copy(desktopClockMaterial = it)) },

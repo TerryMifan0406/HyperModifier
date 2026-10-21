@@ -198,3 +198,39 @@ c014a14bb9ddab4431a887c98c6d56ce305b0573。15 个入口/布局相关函数全段
 代码契约见 `clock_glass_profile.h`；主机测试对真实 ELF 和逐项代码变异运行生产校验。
 这只是静态 ABI 与回退行为的验证，不证明背景纹理可用、TLS 绘制链在设备同步、
 BloomStroke 能按任意字形计算高光，或等效系统锁屏 MiGlass。验证计划另见阶段文档。
+
+## v1 实机失败后的消费链核对与 v2 修正
+
+用户反馈 v1 两档均为不透明且锯齿的字形。不能把上节“字形 DrawPath 已记录材质属性”
+解释为材质已经被引擎消费。普通字形进入 DlDispatcherBase::drawPath 0xc487a0，
+其 SimplifyOrDrawPath 0xc487d0 只能把特定矩形路径简化为 DrawRect；普通字形继续
+Canvas::DrawPath。该字形分支没有走 PassBlur 的窗口纹理消费链。
+
+可消费的链在 DlDispatcherBase::drawRect 0xc46b88：+0x51 判断 PassBlur；取 Canvas
+与 ContentContext 的 PassBlurState；0xc46d1c 调用 ConsumePendingAHB 0xc310e8；
+无状态或纹理则直接跳过绘制。0xc46f98 读取 radius，0xc46fec 调用
+MiRefineGaussianBlurHelper::getBluredTexture 0xd4e328，随后经 MiBlendHelper 和
+TextureContents 绘制。这里存在实际的高斯纹理分支，不只是画笔字段。尚不能仅凭
+这些静态证据断言默认经典时钟所在绘制上下文在真机一定有背景纹理。
+
+v2 改为 GetPath → AA ClipPath（交集）→ PassBlur DrawRect；复制画笔的 AA 位显式
+开启；只使用一层显式 20% source-over tint（随原字色），其余层为 0xff 禁用。
+纯背景模糊在纯色壁纸上无法辨识，保留少量着色以保证对比度；不会继承默认不透明混合色。Builder 的原 AA 和材质均显式记录恢复。
+纹理由 native 拥有和导入，不跨 libhwui 交换 C++ 对象。半透明文字不进入新分支，
+避免 PassBlur 纹理不消费原文字 alpha 而破坏淡入淡出。
+
+新增仅匹配本功能标记的矩形回放 Hook，按原函数同样的 Canvas/上下文/状态链检查
+纹理，并在缺失时暂时关闭该次 PassBlur 来保留可见文字。状态/纹理指针均不保留。
+矩形记录中使用固定专用 blendId，同时作路由和原生缓存键。复查 getBluredTexture
+0xd4e328 的查找键为 id/namespace，0xd4e67c..0xd4e6d8 比较半径/尺寸等，失配会
+替换同槽；因此不能改用默认 id 100，与系统其他半径互相驱逐。固定键在该 Context 中
+复用一个专用原生缓存槽，不按帧/实例生成新 id。诊断仅按首次状态唤醒既有工作线程，至多三次；
+工作线程记录有无背景源，不将“记录了 clip”当作“已成功显示模糊”。
+
+BloomStroke 有独立的矩形 drawBloomStroke 接口 0xc50dc8；简单设其画笔字段不能
+得到字形 MiGlass。柔光玻璃档暂保留系统原绘制，并在 UI 明示未接通。字形 SDF/遮罩
+与原生玻璃材质的真正连接仍未实现，不能用一个被裁剪的矩形边缘冒充字形折射。
+
+ABI 契约更新为 19 项，并纳入 ClipPath 本体、DrawRect 回放与 AHB 导入。主机测试
+验证缺失背景回退及标记/AA 恢复；不验证 GPU 采样、实际背景可用性或视觉质量。
+手机本轮只读读取日志；未安装修改后的版本。

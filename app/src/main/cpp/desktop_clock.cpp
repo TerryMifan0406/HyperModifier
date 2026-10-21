@@ -91,6 +91,11 @@ bool bridgeAttempted = false, calendarAttempted = false;
 NativeLibraryNotifications libraryNotifications;
 int installWake = -1;
 std::atomic<bool> installRequested{false};
+void requestInstall() {
+    if (!installRequested.exchange(true) && installWake >= 0) {
+        uint64_t wake = 1; (void)write(installWake, &wake, sizeof(wake));
+    }
+}
 
 bool isLauncher() {
     char name[96]{};
@@ -222,7 +227,7 @@ void install() {
     if (!guard.owns_lock()) return;
     NativeInstallScope installing;
     Images images; dl_iterate_phdr(findImages, &images);
-    installClockGlass(images.clockMaml, images.clockFlutter, hook, unhook);
+    installClockGlass(images.clockMaml, images.clockFlutter, hook, unhook, requestInstall);
     if (images.launcherPath && !androidWidgetHooksSettled()) {
         void *launcher = dlopen(images.launcherPath, RTLD_NOW | RTLD_NOLOAD);
         if (launcher) {
