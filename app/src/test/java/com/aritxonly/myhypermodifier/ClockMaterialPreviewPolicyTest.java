@@ -24,4 +24,23 @@ public class ClockMaterialPreviewPolicyTest {
         assertFalse(ClockMaterialPreviewPolicy.show(true, true, 300, 0, 0));
         assertFalse(ClockMaterialPreviewPolicy.show(true, true, 300, 0, 5));
     }
+    @Test public void transparentPreparationDoesNotApproveDisplayTarget() {
+        assertTrue(ClockMaterialPreviewPolicy.prepare(true, 100, 0, 2));
+        assertFalse(ClockMaterialPreviewPolicy.show(true, false, 100, 0, 2));
+        assertFalse(ClockMaterialPreviewPolicy.prepare(false, 100, 0, 2));
+        assertFalse(ClockMaterialPreviewPolicy.prepare(true, 1001, 0, 2));
+    }
+    @Test public void handoffDoesNotRestoreOpacityLostSinceCapture() {
+        assertEquals(.3f, ClockMaterialPreviewPolicy.opacity(1f, 1f, .3f, 1f), .0001f);
+        // Captured font alpha is retained in the native paint path: compensate View alpha.
+        float viewAlpha = ClockMaterialPreviewPolicy.opacity(.8f, .5f, .7f, .2f);
+        assertEquals(.7f * .2f, viewAlpha * .5f, .0001f);
+        assertEquals(.4f, ClockMaterialPreviewPolicy.opacity(.4f, 1f, .8f, 1f), 0f);
+    }
+    @Test public void invisibleOrInvalidSourceCannotFlashBackOnScreen() {
+        assertEquals(0f, ClockMaterialPreviewPolicy.opacity(1f, 1f, 0f, 1f), 0f);
+        assertEquals(0f, ClockMaterialPreviewPolicy.opacity(1f, 1f, 1f, 0f), 0f);
+        assertEquals(0f, ClockMaterialPreviewPolicy.opacity(1f, 0f, 1f, 1f), 0f);
+        assertEquals(0f, ClockMaterialPreviewPolicy.opacity(1f, 1f, Float.NaN, 1f), 0f);
+    }
 }

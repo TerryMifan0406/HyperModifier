@@ -16,6 +16,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.view.ViewTreeObserver;
 
 import java.io.PrintWriter;
 import java.lang.ref.WeakReference;
@@ -85,6 +86,7 @@ final class ClockMaterialPreview {
             candidate = value; targetStatus = "not-seen"; lastResult = "sampling-radius=" + parts.get(0).blurRadius();
             state = "prepared:native-views=" + parts.size();
             MAIN.postDelayed(value.timeout, 1500L); // Bounded preparation watchdog, no polling.
+            MAIN.post(value.warm); // Leave original GoingAway work first; prepare before remote target arrives.
         } catch (ReflectiveOperationException | RuntimeException error) {
             close("prepare-" + failure(error));
         }
@@ -138,7 +140,10 @@ final class ClockMaterialPreview {
         value.fading = true;
         state = "fading:exit-finished";
         lastResult = "handoff-delay-ms=" + (value.handoffAt - value.remoteAt)
-                + " exit-after-handoff-ms=" + (SystemClock.uptimeMillis() - value.handoffAt);
+                + " exit-after-handoff-ms=" + (SystemClock.uptimeMillis() - value.handoffAt)
+                + " preparation-ms=" + value.preparationCost
+                + " prepared-before-remote-ms=" + (value.remoteAt - value.preparedAt)
+                + " activation-alpha=" + value.activationAlpha;
         // No guessed desktop target: retain source pose and only fade this handoff experiment.
         value.root.animate().alpha(0f).setDuration(160L).withEndAction(() -> {
             if (candidate == value) close("handoff-complete");
@@ -181,13 +186,23 @@ final class ClockMaterialPreview {
     }
 
     private static void show(Candidate value) {
+        if (candidate != value || value.activationRequested) return;
+        if (!ClockMaterialPreviewPolicy.show(enabled(), value.home,
+                SystemClock.uptimeMillis() - value.created, value.display.getRotation(), value.parts.size())
+                || value.exitFinished) { close("activation-stale"); return; }
+        value.activationRequested = true;
+        if (value.root != null) value.root.arm();
+    }
+
+    private static void warm(Candidate value) {
         if (candidate != value || value.root != null) return;
         int rotation = value.display.getRotation();
-        if (!ClockMaterialPreviewPolicy.show(enabled(), value.home,
+        if (!ClockMaterialPreviewPolicy.prepare(enabled(),
                 SystemClock.uptimeMillis() - value.created, rotation, value.parts.size())
                 || rotation != value.rotation || value.exitFinished) {
-            close("guard home=" + value.home); return;
+            close("prewarm-stale"); return;
         }
+        long start = SystemClock.uptimeMillis();
         try {
             Context windowContext = value.context.createWindowContext(value.display, WINDOW_TYPE, null);
             List<Part> replicas = new ArrayList<>();
@@ -207,7 +222,9 @@ final class ClockMaterialPreview {
             params.setFitInsetsTypes(0);
             params.setTitle("MHM clock material experiment");
             value.manager.addView(value.root, params);
-            if (!value.shown) state = "window-added:awaiting-attach";
+            value.preparedAt = SystemClock.uptimeMillis();
+            value.preparationCost = value.preparedAt - start;
+            if (!value.shown) state = "window-prepared:awaiting-attach";
             // One preparation/session watchdog also bounds a missing commit or exit callback.
         } catch (ReflectiveOperationException | RuntimeException error) { close("window-" + failure(error)); }
     }
@@ -220,9 +237,10 @@ final class ClockMaterialPreview {
     private static void close(String reason) {
         Candidate value = candidate; candidate = null;
         if (value != null) {
-            MAIN.removeCallbacks(value.show); MAIN.removeCallbacks(value.timeout);
+            MAIN.removeCallbacks(value.warm); MAIN.removeCallbacks(value.show); MAIN.removeCallbacks(value.timeout);
             try {
                 if (value.root != null) {
+                    value.root.disarm();
                     value.root.setVisibility(View.GONE);
                     value.root.animate().cancel();
                     try { if (value.root.getParent() != null) value.manager.removeViewImmediate(value.root); }
@@ -263,9 +281,11 @@ final class ClockMaterialPreview {
         WindowManager manager;
         volatile boolean home, shown;
         volatile long remoteAt;
-        long handoffAt;
-        boolean handedOff, exitFinished, fading;
+        long handoffAt, preparedAt, preparationCost;
+        float activationAlpha;
+        boolean handedOff, exitFinished, fading, activationRequested;
         final Runnable committed = () -> MAIN.post(() -> handoff(this));
+        final Runnable warm = () -> { if (candidate == this) ClockMaterialPreview.warm(this); };
         final Runnable show = () -> { if (candidate == this) ClockMaterialPreview.show(this); };
         final Runnable timeout = () -> { if (candidate == this) close("timeout"); };
         Candidate(Context context, Display display, List<CopiedPart> parts, List<WeakReference<View>> sources) {
@@ -379,6 +399,20 @@ final class ClockMaterialPreview {
             replica.setAlpha(source.alpha()); replica.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             return new Part(replica, source.screenMatrix(), source.clip(), source.width(), source.height());
         }
+        float currentOpacity(CopiedPart part) throws ReflectiveOperationException {
+            View source = part.lease().target();
+            if (source == null || !source.isAttachedToWindow() || !source.isShown()
+                    || source.getWindowVisibility() != View.VISIBLE) return 0f;
+            float alpha = 1f;
+            View parent = source;
+            for (int i = 0; parent != null && i < 64; i++) {
+                alpha *= parent.getAlpha() * transitionAlpha.read(parent);
+                parent = parent.getParent() instanceof View next ? next : null;
+            }
+            if (parent != null) return 0f;
+            return ClockMaterialPreviewPolicy.opacity(part.alpha(), (Float) part.values()[0],
+                    alpha, values[0].getFloat(source));
+        }
         void bindSampling(Host host, List<Part> parts)
                 throws ReflectiveOperationException {
             for (Part part : parts) chooseContainer.invoke(part.replica(), host);
@@ -406,14 +440,15 @@ final class ClockMaterialPreview {
         }
     }
 
-    private static final class Host extends ViewGroup {
+    private static final class Host extends ViewGroup implements ViewTreeObserver.OnPreDrawListener {
         final List<Part> parts;
         final int[] position = new int[2];
         final Candidate owner;
         final Factory reader;
-        boolean failed, drawn, samplingReady;
+        boolean failed, drawn, samplingReady, armed;
         Host(Context context, List<Part> parts, Candidate owner, Factory reader) {
             super(context); this.parts = parts; this.owner = owner; this.reader = reader;
+            setAlpha(0f); // Warm window, fonts and native display lists without covering the source.
             setClipChildren(false); setClipToPadding(false);
             setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
             for (Part part : parts) addView(part.replica());
@@ -425,14 +460,44 @@ final class ClockMaterialPreview {
                 reader.enableSampling(this, owner.parts.get(0).blurRadius());
                 reader.bindSampling(this, parts);
                 samplingReady = true;
-                owner.shown = true; shownCount++;
-                state = "shown:native-sampling-container-unverified";
-                // One commit callback, no per-frame observation. Sources remain untouched
-                // until this independently rendered window has submitted a first frame.
-                getViewTreeObserver().registerFrameCommitCallback(owner.committed);
+                state = "prewarmed:sampling-ready";
+                if (owner.activationRequested) arm();
             } catch (ReflectiveOperationException | RuntimeException error) {
                 fail("sampling-" + failure(error));
             }
+        }
+        void arm() {
+            if (armed || failed || !samplingReady || owner.shown) return;
+            armed = true;
+            getViewTreeObserver().addOnPreDrawListener(this);
+            invalidate();
+        }
+        void disarm() {
+            if (armed && getViewTreeObserver().isAlive()) getViewTreeObserver().removeOnPreDrawListener(this);
+            armed = false;
+            if (getViewTreeObserver().isAlive()) getViewTreeObserver().unregisterFrameCommitCallback(owner.committed);
+        }
+        @Override public boolean onPreDraw() {
+            disarm(); // One-shot; no per-frame metadata traversal or reflection.
+            if (candidate != owner || owner.exitFinished || !owner.home || !enabled()
+                    || owner.display.getRotation() != owner.rotation) { fail("activation-stale"); return true; }
+            try {
+                float minimum = 1f;
+                for (int i = 0; i < parts.size(); i++) {
+                    float opacity = reader.currentOpacity(owner.parts.get(i));
+                    if (opacity <= 0f) { fail("source-already-faded"); return true; }
+                    parts.get(i).replica().setAlpha(opacity);
+                    minimum = Math.min(minimum, opacity);
+                }
+                owner.activationAlpha = minimum;
+                getViewTreeObserver().registerFrameCommitCallback(owner.committed);
+                setAlpha(1f);
+                owner.shown = true; shownCount++;
+                state = "activated:opacity-matched";
+            } catch (ReflectiveOperationException | RuntimeException error) {
+                fail("activation-" + failure(error));
+            }
+            return true;
         }
         private void fail(String reason) {
             failed = true; setVisibility(GONE);
