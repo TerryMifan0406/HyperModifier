@@ -1,0 +1,116 @@
+# 桌面原生时钟接入 MiGlass 的初步取证
+
+2026-10-21。用户要求终止一镜到底实验，保留版本，并研究默认经典桌面时钟能否
+接入原生柔光玻璃。当前结论：**已有可复用的原生材质通道，值得做定向原型；
+尚未证明普通 DateTime 数字可以直接获得玻璃笔画效果。** 本轮不新增运行时
+Hook、不生成宣称已支持 MiGlass 的设置开关，不安装/重启/触摸或改写手机资源。
+
+## 回滚与归档
+
+主分支通过 `adbcea2` 回滚到实验前 `9d98805` 的运行时代码与设置；这两者的
+`app/` 与 `tools/tests/` 没有差异。此前搜索兼容、前导零及其他功能保留。
+完整实验在 `codex/archive-clock-transition-mvp-v10`（`eb7ee93`），v10 签名 APK
+保留。入口和回滚验证见 [归档说明](CLOCK_TRANSITION_ARCHIVE.md)。
+
+回滚只移除本次实验 10 个 SystemUI / 3 个桌面 Hook；模块其他既有 Hook 不变。
+回滚 APK 需用户手动安装并重启系统界面和桌面；当前手机旧进程不会因本地 Git
+回滚自动卸载 Hook。本轮签名 Release 和 390 项 JVM 测试通过；原生安装器
+ASan/UBSan、4608 个搜索与 96 个小组件选择器汇编回归通过。未测帧率/耗电。
+
+## 当前设备及可复现证据
+
+只读 `dumpsys package/activity` 确认桌面更新包为 8583，无 DEX，Rust + Dart AOT。
+默认经典时钟仍是 id=493、MAML id=101390060、4×2、productId
+52b8238d-848f-4608-a0e6-28458d4b1f2c、资源 40130。这些身份用于取证，不建议将
+可变化的运行时 id 当作未来用户配置的永久匹配规则。
+
+从设备只读拉取图形库，MAML 库复用早前保存文件并对照设备实时 SHA256：
+
+| 文件 | SHA256 |
+| --- | --- |
+| librust_maml_sdk.so | 82f65d035e75fad138c692e42753acbb9e9c1254c1fbf683c0ec7db22b1e5e63 |
+| libhyper_os_flutter.so | 96611d690393c5e274f90acfc1357ad9dbfd089f641986eaa518e1d4f688ff59 |
+| libhwui.so | ccd182a0052278d61dd4a6ae920b452a3f724d0d7a37af659b1ccc9ca5cbd844 |
+
+原始 APK、系统库、解出的 `.gnu_debugdata`、时钟 manifest 和分析 JSON 保存在
+忽略目录 `reference/desktop-miglass-20261021/`，不提交 Git。40130 manifest
+SHA256 为 3ab3bb24be5296f2e4f138b889e9365ea87b49929bd7fd062d454c358021724b。
+它来自之前按设备官方资源地址下载的同版本包；本轮普通 shell 没有读取私有
+资源目录，不能据此宣称设备私有文件逐字相同。
+
+离线复现：
+
+```sh
+python3 -B tools/analysis/inspect-maml-material.py \
+  reference/desktop-miglass-20261021/maml.so \
+  reference/desktop-miglass-20261021/libhyper_os_flutter.so \
+  reference/desktop-miglass-20261021/clock-40130-manifest.xml
+```
+
+脚本读取 ELF 符号、解压 mini debug、解析真实 BL 调用点与 XML；缺少或歧义
+契约时退出。不调用 Android/Dart，不安装 Hook，也不把静态符号存在当作效果验证。
+
+## 已确认的原生路径
+
+| 位置 | 当前库 RVA | 含义/证据 |
+| --- | --- | --- |
+| HyperMaterialHolder::load | 0x4e02ac | 原生材质 XML 解析入口；直接调用点 0x4bd8d4 属于 ElementGroup::on_create_child |
+| GlassMaterialConfig::resolve_pass_window | 0x4d1a2c | 玻璃材质存在独立跨窗口配置解析 |
+| LayerScreenElement::update_view_with_materials | 0x498a30 | Layer 更新材质；LayerView::on_draw 的 0x497ee8 与 LayerScreenElement::tick 的 0x4d1110 直接调用 |
+| FFIMaterialProperties::from_data | 0x53fc0c | 生成宿主属性；FrameLayout::create_view 和 update_view_properties 调用 |
+| TextScreenElement::draw_text | 0x48a6d0 | 当前文字绘制入口，沿 rust_maml_canvas / Dart TextPainter 绘制，不是 Java TextClock |
+| ImageFilter::initGlassV7 的 FFI dispatcher | 0xe896fc | Flutter 引擎编译了原生玻璃滤镜；方法本体可能内联，不能把 dispatcher 当普通 C 函数调用 |
+| impeller::MiGlassContents::Render | 0xd5d860 | 引擎具备原生玻璃渲染，并含 SDF、v13 F16 shader 与 MiHyperMaterialEngine 路径 |
+
+MAML 库中还存在 HyperMaterialModel、HyperMaterialVariableUpdater、MaterialToken、
+GlassConfig、BackgroundBlurConfig、BloomStrokeConfig，以及 token、params、
+smallBlurRadius、bigBlurRadius、disableGlass、rustPassWindow 等解析相关字串。
+HyperMaterialHolder::load 对 MaterialToken、enable 及子配置作处理；完整 XML
+schema、Rust enum/Option 布局和 FFI 所有权仍需逐项核对，不能仅凭字串编造配置。
+
+桌面 AOT 存在 MamlGlassMaterialConfig 的结构化调试输出。0x16833c8 的 toString
+实现依次读取 sigmaReflect（对象+7）、sigmaBgColor（+15）、thicknessPx（+23）、
+reflectOffsetPx（+31）四个 double，并打印字段名。这证明 Dart 侧有 MAML 玻璃
+配置模型；对象地址含 Dart tag，不能把这些偏移作为普通 C 结构直接操作。
+
+HWUI 也有 SkCanvas::drawRectMiGlass、BackgroundBlurBlendProperties 等原生符号，
+但桌面当前路径是独立 Flutter 引擎。两套 SkCanvas/SkPaint 不保证相同 ABI，
+不能把 Flutter 或 Rust 包装对象直接传给 libhwui 的同名接口。已有 SystemUI
+View.setMiGlass / Paint.setGlassEffect 经验只能参考材质语义，不能照搬 Java Hook。
+
+## 默认经典时钟为什么不能只开一个材质布尔值
+
+当前 40130 资源是普通 Group/DateTime/Text 组合：frameRate=0，更新器为
+DateTime.Minute，supportBackgroundBlur=false。解析结果包含 5 个 DateTime，
+**没有 Layer、MaterialToken 或 GlassConfig**。主时间 center_classic_plus 的
+formatExp 为 HH:mm/h:mm，字体来自 font_path_style_plus，字号 96*scale。
+
+因此，现成的层级材质通道与当前 DateTime 绘制之间尚有接入缺口。不能因引擎
+支持玻璃，就声称改 supportBackgroundBlur=true 能使数字变玻璃；它也不能证明
+跨窗口壁纸采样、材质输入色、透明区域处理已经正确。MAML 既有 Picture/图像
+缓存与直接绘制分支需要按目标实例区分，不能把所有 MAML 一概断言为最终位图。
+
+当前已验证的材质更新是 Layer/FrameLayout 通道；普通 DateTime 是否能走同等
+文字材质、或需要利用其 alpha/字形作为材质裁剪，仍未确认。给整个 4×2 小组件
+加矩形玻璃背景不等于玻璃数字，本方向不能用该结果代替验收。
+
+## 后续原型路线与停止条件
+
+1. 先追 MaterialToken/GlassConfig 从 Layer 到 Dart MamlGlassMaterialConfig、
+   实际 ImageFilter 的传递，核对 disableGlass、跨窗口采样及 capability gate。
+   保持仅目标资源/元素范围，优先加载或相关配置变化时安装/更新，不 Hook 全局
+   Paint/Canvas 每帧遍历，也不强开所有 MAML 的材质能力。
+2. 验证能否以原时间文字轮廓作裁剪，同时保留时间格式、主题字体、点击语义、
+   原色、日期等内容。先做一个目标元素的最小原型；不能定向或不能验证 alpha
+   裁剪时停在证据阶段，不发布冒充玻璃笔画的矩形卡片。
+3. 能力和裁剪通过后，才接模块偏好/定向规则/原值恢复与实时启停。对象、token
+   和缓存生命周期必须明晰；不保留 Dart 堆对象跨 GC，不从原生任意线程调用
+   Dart 函数，不用未经核对的 Option/FFI 布局写字段。
+4. 验证原 0fps/分钟更新下的采样刷新，再覆盖滑页、解锁、动态壁纸、主题字体、
+   小组件移除/重加与系统材质关闭。若需要逐帧截图、CPU 读回或常驻轮询才能
+   更新壁纸，先停下评估成本。优先复用原生合成与采样缓存。
+
+本轮只有静态反汇编、ELF 直连与资源取证。研究代码不进入模块运行时，没有新
+Hook、轮询、IPC、窗口、截图或 GPU 层。未来原型的背景采样/滤镜/遮罩可能增加
+GPU 带宽和渲染 pass，须用同设备同操作的 Perfetto/FrameTimeline/分配采样验证；
+本轮不能给出可用性、帧率或功耗改善结论。
