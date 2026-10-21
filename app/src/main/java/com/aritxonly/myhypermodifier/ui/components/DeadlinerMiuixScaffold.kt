@@ -43,7 +43,7 @@ fun DeadlinerMiuixScaffold(
     modifier: Modifier = Modifier,
     content: @Composable (PaddingValues) -> Unit,
 ) {
-    val advancedMaterial = remember { AdvancedMaterialSpec(enabled = true, blurRadius = 92f) }
+    val advancedMaterial = remember { AdvancedMaterialSpec(enabled = true) }
     val captureColor = MiuixTheme.colorScheme.background
     val backdrop = rememberLayerBackdrop {
         drawRect(captureColor)

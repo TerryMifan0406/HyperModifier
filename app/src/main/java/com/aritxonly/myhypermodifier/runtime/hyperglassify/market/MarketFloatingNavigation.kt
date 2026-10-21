@@ -425,11 +425,12 @@ private fun MarketNavigationContent(
     MaterialTheme(colorScheme = materialColors) {
         MiuixTheme(colors = miuixColors) {
             CompositionLocalProvider(
-                LocalAdvancedMaterialSpec provides AdvancedMaterialSpec(enabled = true),
+                LocalAdvancedMaterialSpec provides navigationGlassMaterial(),
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .navigationEdgeMask()
                         .navigationBarsPadding()
                         .padding(
                             start = 16.dp,

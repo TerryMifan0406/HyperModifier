@@ -25,7 +25,7 @@ import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 
 /** Retains app-produced display lists. No View.draw, Bitmap, GPU readback or forced source draw. */
-internal class NativeGpuBackdrop private constructor(sourceView: View, consumerView: View, retainedNode: RenderNode) {
+internal class NativeGpuBackdrop private constructor(sourceView: View, consumerView: View, retainedNode: RenderNode) : NavigationGlassObserver {
     private val source = WeakReference(sourceView)
     private val consumer = WeakReference(consumerView)
     var frameVersion by mutableIntStateOf(0)
@@ -34,6 +34,7 @@ internal class NativeGpuBackdrop private constructor(sourceView: View, consumerV
     val node = RenderNode("MyHyperModifier retained backdrop")
     var geometry by mutableStateOf<ViewBackdropBounds?>(null)
         private set
+    private var samplingBleedPx = NavigationGlassRuntime.paddingPx(sourceView.resources.displayMetrics.density)
     private val location = IntArray(2)
     private var active = false
     private var disposed = false
@@ -86,6 +87,7 @@ internal class NativeGpuBackdrop private constructor(sourceView: View, consumerV
         }
     }
     init {
+        NavigationGlassRuntime.observe(this)
         // Observe after attachment: a floating ViewTreeObserver is merged and killed at attach.
         // Holding that obsolete observer would prevent removal of the merged draw listener.
         sourceView.addOnLayoutChangeListener(sourceLayout)
@@ -114,7 +116,7 @@ internal class NativeGpuBackdrop private constructor(sourceView: View, consumerV
         sourceLeft = location[0]; sourceTop = location[1]
         sourceWidth = view.width; sourceHeight = view.height
         sourceViewLeft = view.left; sourceViewTop = view.top
-        val bleed = (32f * view.resources.displayMetrics.density).toInt()
+        val bleed = samplingBleedPx
         val left = (value.left - bleed).coerceAtLeast(sourceLeft)
         val top = (value.top - bleed).coerceAtLeast(sourceTop)
         val right = (value.left + value.width + bleed).coerceAtMost(sourceLeft + sourceWidth)
@@ -133,11 +135,21 @@ internal class NativeGpuBackdrop private constructor(sourceView: View, consumerV
         geometry = ViewBackdropBounds(left, top, width, height)
     }
 
+    override fun onNavigationGlassChanged() {
+        val view = source.get() ?: return
+        val bleed = NavigationGlassRuntime.paddingPx(view.resources.displayMetrics.density)
+        if (bleed == samplingBleedPx || disposed) return
+        samplingBleedPx = bleed
+        sourceLeft = Int.MIN_VALUE
+        bounds?.let(::setBounds)
+    }
+
     fun targetBounds(): ViewBackdropBounds? = bounds
 
     fun dispose() {
         if (disposed) return
         disposed = true
+        NavigationGlassRuntime.remove(this)
         active = false
         consumer.get()?.removeCallbacks(redraw)
         observer?.takeIf { it.isAlive }?.removeOnDrawListener(sourceDraw)

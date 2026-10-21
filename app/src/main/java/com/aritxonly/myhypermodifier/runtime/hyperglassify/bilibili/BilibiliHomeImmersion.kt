@@ -1,5 +1,6 @@
 package com.aritxonly.myhypermodifier
 
+import android.content.res.Configuration
 import android.app.Activity
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.LayerDrawable
@@ -14,6 +15,22 @@ internal class BilibiliHomeImmersion(activity: Activity) {
     private val content = WeakReference(activity.findViewById<View>(resourceId(activity, "content_layout")))
     private var enabled = false
     private var originalBottomPadding: Int? = null
+    private var capturedNavigationInsetPx = 0
+    private var insetOrientation = Configuration.ORIENTATION_UNDEFINED
+    // The app consumes the inset before dispatch reaches our in-tree ComposeView.
+    // Preserve its native value before stripping the original bottom padding/background.
+    val navigationInsetPx: Int
+        get() = if (root.get()?.resources?.configuration?.orientation == insetOrientation)
+            capturedNavigationInsetPx else 0
+
+    private fun captureNavigationInset(bottom: Int) {
+        val orientation = root.get()?.resources?.configuration?.orientation ?: return
+        if (orientation != insetOrientation) {
+            capturedNavigationInsetPx = 0
+            insetOrientation = orientation
+        }
+        if (bottom > 0) capturedNavigationInsetPx = bottom
+    }
     private var background = WeakReference<Drawable>(null)
     private var strip = WeakReference<Drawable>(null)
     private var accessor: InsetsAccessor? = null
@@ -46,6 +63,7 @@ internal class BilibiliHomeImmersion(activity: Activity) {
     private fun apply(nativeInsetsChanged: Boolean) {
         content.get()?.let { view ->
             if (originalBottomPadding == null || nativeInsetsChanged || view.paddingBottom != 0) {
+                captureNavigationInset(view.paddingBottom)
                 originalBottomPadding = view.paddingBottom
             }
             if (view.paddingBottom != 0) {
@@ -65,6 +83,7 @@ internal class BilibiliHomeImmersion(activity: Activity) {
         runCatching {
             val insets = access.current.get(drawable) ?: return@runCatching
             val bottom = access.bottom.getInt(insets)
+            captureNavigationInset(bottom)
             if (originalInsets == null || nativeInsetsChanged || bottom != 0) originalInsets = insets
             if (bottom != 0) {
                 val immersive = access.of.invoke(

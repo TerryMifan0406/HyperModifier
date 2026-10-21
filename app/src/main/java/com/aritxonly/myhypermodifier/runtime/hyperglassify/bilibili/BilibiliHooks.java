@@ -50,7 +50,6 @@ final class BilibiliHooks {
 
             installResumeHook(module, mainActivity);
             installDestroyHook(module, mainActivity);
-            installTouchHook(module, mainActivity);
             installPauseHook(module, mainActivity);
             installFocusHook(module, mainActivity);
             installTabClickHook(module, classLoader);
@@ -103,29 +102,6 @@ final class BilibiliHooks {
 
         } catch (Throwable throwable) {
             module.log(Log.WARN, TAG, "Bilibili destroy hook unavailable", throwable);
-        }
-    }
-
-    private static void installTouchHook(XposedModule module, Class<?> mainActivity) {
-        try {
-            Method dispatchTouchEvent = Activity.class.getDeclaredMethod(
-                    "dispatchTouchEvent", MotionEvent.class);
-            module.hook(dispatchTouchEvent)
-                    .setId("bilibili-floating-navigation-touch")
-                    .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
-                    .intercept(chain -> {
-                        Object result = chain.proceed();
-                        Object target = chain.getThisObject();
-                        Object event = chain.getArg(0);
-                        if (mainActivity.isInstance(target) && target instanceof Activity
-                                && event instanceof MotionEvent) {
-                            BilibiliFloatingNavigation.onTouchEvent(
-                                    (Activity) target, (MotionEvent) event);
-                        }
-                        return result;
-                    });
-        } catch (Throwable throwable) {
-            module.log(Log.WARN, TAG, "Bilibili touch hook unavailable", throwable);
         }
     }
 

@@ -28,6 +28,7 @@ final class GlobalGlassBlurHooks {
     private GlobalGlassBlurHooks() {}
 
     static void install(XposedModule module, String packageName) {
+        UnifiedGlassHooks.install(module, packageName);
         if (disableShadeGlassHooks || !INSTALLED.compareAndSet(false, true)) return;
         try {
             final boolean preserveClear = ModuleScopePackage.INCALL_UI.equals(packageName);

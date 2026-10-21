@@ -140,7 +140,8 @@ internal class ViewBackdropSampler(
     private val captureAfterDraw: Boolean = false,
     private val pixelCopyRetryDelayMs: Long = PIXEL_COPY_RETRY_DELAY_MS,
     private val onSnapshotChanged: (ViewBackdropSnapshot?) -> Unit,
-) {
+) : NavigationGlassObserver {
+    private var materialBleed = NavigationGlassRuntime.paddingPx(source.resources.displayMetrics.density)
     private val handler = Handler(Looper.getMainLooper())
     private var bounds: ViewBackdropBounds? = null
     private var captureScheduled = false
@@ -182,6 +183,7 @@ internal class ViewBackdropSampler(
     }
 
     init {
+        NavigationGlassRuntime.observe(this)
         if (source.viewTreeObserver.isAlive) {
             source.viewTreeObserver.addOnScrollChangedListener(scrollChangedListener)
         }
@@ -295,7 +297,16 @@ internal class ViewBackdropSampler(
         requestCapture()
     }
 
+    override fun onNavigationGlassChanged() {
+        val padding = NavigationGlassRuntime.paddingPx(source.resources.displayMetrics.density)
+        if (padding == materialBleed) return
+        materialBleed = padding
+        invalidateSamplingContext()
+        requestCaptureBurst()
+    }
+
     fun dispose() {
+        NavigationGlassRuntime.remove(this)
         disposed = true
         hardwareCapture?.close()
         handler.removeCallbacks(captureRunnable)
@@ -318,7 +329,7 @@ internal class ViewBackdropSampler(
         }
         val sourceLocation = IntArray(2)
         source.getLocationInWindow(sourceLocation)
-        val bleed = ceil(source.resources.displayMetrics.density * SAMPLE_BLEED_DP).toInt()
+        val bleed = materialBleed
         val sourceRect = Rect(
             target.left - sourceLocation[0] - bleed,
             target.top - sourceLocation[1] - bleed,

@@ -202,6 +202,7 @@ final class SystemUiRuntimeHooks {
         tryInstallSystemUiPart("状态栏信号及网速边距", () -> StatusBarNetworkMarginsHooks.install(module, classLoader));
         tryInstallSystemUiPart("桌面状态栏取色", () -> DesktopStatusBarHooks.install(module, classLoader));
         tryInstallSystemUiPart("状态栏显秒", () -> StatusBarClockSecondsHooks.install(module, classLoader));
+        tryInstallSystemUiPart("无数字电池实心框", () -> StatusBarBatteryFrameHooks.install(module, classLoader));
         tryInstallSystemUiPart("状态栏网络类型", () -> StatusBarNetworkType.install(module, classLoader));
         if (retryLateClasses) SYSTEM_UI_HOOKS_INSTALLED.set(false);
     }

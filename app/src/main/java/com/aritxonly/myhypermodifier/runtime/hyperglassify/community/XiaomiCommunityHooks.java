@@ -3,7 +3,6 @@ package com.aritxonly.myhypermodifier;
 import android.app.Activity;
 import android.os.Bundle;
 import android.util.Log;
-import android.view.MotionEvent;
 
 import java.lang.reflect.Method;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -28,8 +27,6 @@ final class XiaomiCommunityHooks {
             Method onCreate = mainActivity.getDeclaredMethod("onCreate", Bundle.class);
             Method onResume = mainActivity.getDeclaredMethod("onResume");
             Method onDestroy = mainActivity.getDeclaredMethod("onDestroy");
-            Method dispatchTouchEvent = Activity.class.getDeclaredMethod(
-                    "dispatchTouchEvent", MotionEvent.class);
 
             module.hook(onCreate)
                     .setId("xiaomi-community-floating-navigation-create")
@@ -72,20 +69,6 @@ final class XiaomiCommunityHooks {
                         return chain.proceed();
                     });
 
-            module.hook(dispatchTouchEvent)
-                    .setId("xiaomi-community-floating-navigation-touch")
-                    .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
-                    .intercept(chain -> {
-                        Object result = chain.proceed();
-                        Object target = chain.getThisObject();
-                        Object event = chain.getArg(0);
-                        if (mainActivity.isInstance(target) && target instanceof Activity
-                                && event instanceof MotionEvent) {
-                            XiaomiCommunityFloatingNavigation.onTouchEvent(
-                                    (Activity) target, (MotionEvent) event);
-                        }
-                        return result;
-                    });
         } catch (Throwable throwable) {
             INSTALLED.set(false);
             module.log(Log.ERROR, TAG, "Could not install Xiaomi Community navigation hooks", throwable);

@@ -67,6 +67,11 @@ final class XiaomiHealthHooks {
                         }
                         return result;
                     });
+            NavigationHostLifecycleHooks.install(module, mainActivity,
+                    activity -> {
+                        XiaomiHealthFloatingNavigation.attach(activity);
+                        XiaomiHealthFloatingNavigation.setForeground(activity, true);
+                    }, activity -> XiaomiHealthFloatingNavigation.setForeground(activity, false));
         } catch (Throwable throwable) {
             INSTALLED.set(false);
             module.log(Log.ERROR, TAG, "Could not install Xiaomi Health navigation hooks", throwable);

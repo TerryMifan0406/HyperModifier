@@ -30,6 +30,8 @@ internal data class NativeTabIconPair(
 internal class NativeTabIconSnapshotter(
     private val resources: Resources,
     private val theme: Resources.Theme? = null,
+    private val maxBitmapSizePx: Int = MAX_BITMAP_SIZE_PX,
+    private val includeMonochrome: Boolean = true,
 ) {
     private val entries = WeakHashMap<View, Entry>()
 
@@ -105,7 +107,7 @@ internal class NativeTabIconSnapshotter(
                     ?: source.bounds.height().takeIf { it > 0 }
                     ?: iconView.height.takeIf { it > 0 }
                     ?: fallbackSize
-                val scale = minOf(1f, MAX_BITMAP_SIZE_PX / maxOf(intrinsicWidth, intrinsicHeight).toFloat())
+                val scale = minOf(1f, maxBitmapSizePx.coerceAtLeast(1) / maxOf(intrinsicWidth, intrinsicHeight).toFloat())
                 val width = maxOf(1, (intrinsicWidth * scale).roundToInt())
                 val height = maxOf(1, (intrinsicHeight * scale).roundToInt())
                 val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
@@ -117,7 +119,8 @@ internal class NativeTabIconSnapshotter(
                 }
                 RenderedIcon(
                     color = bitmap.asImageBitmap(),
-                    monochrome = createMonochromeMask(bitmap).asImageBitmap(),
+                    monochrome = if (includeMonochrome) createMonochromeMask(bitmap).asImageBitmap()
+                        else bitmap.asImageBitmap(),
                 )
             } finally {
                 if (usesOriginal) {

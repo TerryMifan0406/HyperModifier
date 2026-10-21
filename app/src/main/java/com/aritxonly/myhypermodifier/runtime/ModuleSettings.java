@@ -44,11 +44,15 @@ final class ModuleSettings {
     static volatile boolean headsUpBottomMarginEnabled = false;
     static volatile float headsUpBottomMarginDp = 13f;
     static volatile boolean headsUpGlassParametersEnabled = false;
+    static volatile boolean unifiedGlassEnabled = false;
+    static volatile float[] unifiedGlassParameters = UnifiedGlassPolicy.sanitize(ShadeCardGlassPolicy.defaults());
     static volatile boolean shadeCardGlassParametersEnabled = false;
     static volatile boolean disableShadeGlassHooks = false;
     static volatile boolean globalGlassBlurEnabled = false;
     static volatile int dynamicIslandExpandedOpacity = 30;
     static volatile boolean dynamicIslandOpacityEnabled = false;
+    static volatile boolean dynamicIslandNotificationOpacityEnabled = false;
+    static volatile int dynamicIslandNotificationOpacity = 70;
     private static volatile float[] shadeCardGlassParameters = ShadeCardGlassPolicy.defaults();
     static volatile int shadeCardGlassBlurRadius = 20;
     static volatile boolean headsUpBackgroundBlurRadiusEnabled = false;
@@ -132,7 +136,10 @@ final class ModuleSettings {
     static volatile boolean statusBarHideMobileTypeOnWifi = false;
     static volatile boolean statusBarHideMobileActivity = false;
     static volatile boolean statusBarHideWifiActivity = false;
+    static volatile boolean notificationClockShowSeconds = false;
     static volatile boolean statusBarShowSeconds = false;
+    static volatile boolean statusBarSolidBatteryFrame = false;
+    static volatile boolean statusBarHideClockLeadingZero = false;
     static volatile boolean statusBarHideWifiStandard = false;
     static volatile float statusBarMobileActivityOffsetX = 0f;
     static volatile float statusBarMobileActivityOffsetY = 0f;
@@ -148,6 +155,7 @@ final class ModuleSettings {
     static volatile float statusBarNetworkTypeOffset = 0f;
     // A target process can begin drawing before the companion Provider becomes reachable. Keep
     // that bootstrap state visually neutral; the saved default is published once loading succeeds.
+    static volatile String navigationGlassParameters = "";
     static volatile float hyperGlassifyHiddenNavigationLift = 0f;
     static volatile boolean xiaomiHealthFloatingNavigationEnabled = ModuleDefaultValues.XIAOMI_HEALTH_FLOATING_NAVIGATION_ENABLED;
     static volatile boolean xiaomiHealthMiuixIconsEnabled = false;
@@ -166,6 +174,7 @@ final class ModuleSettings {
     static volatile boolean amapMiuixIconsEnabled = false;
     static volatile boolean amapMonochromeIconsEnabled = true;
     static volatile boolean amapHideLongPressVoiceTabEnabled = ModuleDefaultValues.AMAP_HIDE_LONG_PRESS_VOICE_TAB_ENABLED;
+    static volatile boolean alipayFloatingNavigationEnabled = ModuleDefaultValues.ALIPAY_FLOATING_NAVIGATION_ENABLED;
     static volatile boolean douyinFloatingNavigationEnabled = ModuleDefaultValues.DOUYIN_FLOATING_NAVIGATION_ENABLED;
     static volatile boolean xiaomiCommunityFloatingNavigationEnabled = ModuleDefaultValues.XIAOMI_COMMUNITY_FLOATING_NAVIGATION_ENABLED;
     static volatile boolean xiaomiCommunityMiuixIconsEnabled = false;
@@ -256,6 +265,9 @@ final class ModuleSettings {
                     "global_background_dim_percent", 20f));
             globalGlassBlurEnabled = preferences.getBoolean("global_glass_blur_enabled",
                     preferences.getBoolean("shade_card_glass_parameters_enabled", false));
+            dynamicIslandNotificationOpacityEnabled = preferences.getBoolean("dynamic_island_notification_opacity_enabled", false);
+            dynamicIslandNotificationOpacity = Math.round(ShadeCardGlassPolicy.normalize(preferences.getFloat(
+                    "dynamic_island_notification_opacity", 70f), 100f, 70f));
             dynamicIslandOpacityEnabled = preferences.getBoolean("dynamic_island_opacity_enabled", globalGlassBlurEnabled);
             dynamicIslandExpandedOpacity = Math.round(ShadeCardGlassPolicy.normalize(preferences.getFloat(
                     "dynamic_island_expanded_opacity", 30f), 100f, 30f));
@@ -493,9 +505,15 @@ final class ModuleSettings {
                     "heads_up_glass_parameters_enabled", false);
             shadeCardGlassParametersEnabled = values.getBoolean("shade_card_glass_parameters_enabled", false);
             disableShadeGlassHooks = values.getBoolean("disable_shade_glass_hooks", false);
+            unifiedGlassParameters = UnifiedGlassPolicy.sanitize(parseHeadsUpGlassParameters(
+                    values.getString("unified_glass_parameters", ""), ShadeCardGlassPolicy.defaults()));
+            unifiedGlassEnabled = values.getBoolean("unified_glass_enabled", false);
             globalGlassBlurEnabled = values.getBoolean("global_glass_blur_enabled", shadeCardGlassParametersEnabled);
             shadeCardGlassParameters = parseHeadsUpGlassParameters(values.getString(
                     "shade_card_glass_parameters", ""), ShadeCardGlassPolicy.defaults());
+            dynamicIslandNotificationOpacityEnabled = values.getBoolean("dynamic_island_notification_opacity_enabled", false);
+            dynamicIslandNotificationOpacity = Math.round(ShadeCardGlassPolicy.normalize(values.getFloat(
+                    "dynamic_island_notification_opacity", 70f), 100f, 70f));
             dynamicIslandOpacityEnabled = values.getBoolean("dynamic_island_opacity_enabled", globalGlassBlurEnabled);
             dynamicIslandExpandedOpacity = Math.round(ShadeCardGlassPolicy.normalize(values.getFloat(
                     "dynamic_island_expanded_opacity", 30f), 100f, 30f));
@@ -615,7 +633,10 @@ final class ModuleSettings {
             statusBarHideMobileTypeOnWifi = values.getBoolean("status_bar_hide_mobile_on_wifi", false);
             statusBarHideMobileActivity = values.getBoolean("status_bar_hide_mobile_activity", false);
             statusBarHideWifiActivity = values.getBoolean("status_bar_hide_wifi_activity", false);
+            notificationClockShowSeconds = values.getBoolean("notification_clock_show_seconds", false);
             statusBarShowSeconds = values.getBoolean("status_bar_show_seconds", false);
+            statusBarSolidBatteryFrame = values.getBoolean("status_bar_solid_battery_frame", false);
+            statusBarHideClockLeadingZero = values.getBoolean("status_bar_hide_clock_leading_zero", false);
             statusBarHideWifiStandard = values.getBoolean("status_bar_hide_wifi_standard", false);
             statusBarMobileActivityOffsetX = values.getFloat("status_bar_mobile_activity_offset_x", 0f);
             statusBarMobileActivityOffsetY = values.getFloat("status_bar_mobile_activity_offset_y", 0f);
@@ -629,6 +650,7 @@ final class ModuleSettings {
             statusBarNetworkTypeSize = values.getFloat("status_bar_network_type_size", 13.5f);
             statusBarNetworkTypeBold = values.getBoolean("status_bar_network_type_bold", true);
             statusBarNetworkTypeOffset = values.getFloat("status_bar_network_type_offset", 0f);
+            navigationGlassParameters = values.getString("navigation_glass_parameters", "");
             hyperGlassifyHiddenNavigationLift = Math.max(0f, Math.min(48f, values.getFloat(
                     "hyper_glassify_hidden_navigation_lift", ModuleDefaultValues.HYPER_GLASSIFY_HIDDEN_NAVIGATION_LIFT)));
             xiaomiHealthFloatingNavigationEnabled = values.getBoolean(
@@ -661,6 +683,7 @@ final class ModuleSettings {
                     "amap_monochrome_icons_enabled", true);
             amapHideLongPressVoiceTabEnabled = values.getBoolean(
                     "amap_hide_long_press_voice_tab_enabled", ModuleDefaultValues.AMAP_HIDE_LONG_PRESS_VOICE_TAB_ENABLED);
+            alipayFloatingNavigationEnabled = values.getBoolean("alipay_floating_navigation_enabled", ModuleDefaultValues.ALIPAY_FLOATING_NAVIGATION_ENABLED);
             douyinFloatingNavigationEnabled = values.getBoolean("douyin_floating_navigation_enabled", ModuleDefaultValues.DOUYIN_FLOATING_NAVIGATION_ENABLED);
             xiaomiCommunityFloatingNavigationEnabled = values.getBoolean(
                     "xiaomi_community_floating_navigation_enabled", ModuleDefaultValues.XIAOMI_COMMUNITY_FLOATING_NAVIGATION_ENABLED);

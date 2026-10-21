@@ -1,7 +1,6 @@
 package com.aritxonly.myhypermodifier;
 
 import android.app.Activity;
-import android.view.MotionEvent;
 import android.view.View;
 import android.graphics.drawable.Drawable;
 import android.util.Log;
@@ -20,17 +19,6 @@ final class SpotifyGlassHooks {
             hookLifecycle(module, main, "onResume");
             hookLifecycle(module, main, "onPause");
             hookLifecycle(module, main, "onDestroy");
-            Method touch = Activity.class.getDeclaredMethod("dispatchTouchEvent", MotionEvent.class);
-            module.hook(touch).setId("spotify-glass-touch")
-                    .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
-                    .intercept(chain -> {
-                        Object result = chain.proceed();
-                        if (main.isInstance(chain.getThisObject())) {
-                            SpotifyFloatingNavigation.onTouchEvent((Activity) chain.getThisObject(),
-                                    (MotionEvent) chain.getArg(0));
-                        }
-                        return result;
-                    });
             Log.i("MyHyperModifier", "Installed Spotify glass dock lifecycle hooks");
         } catch (ReflectiveOperationException error) {
             HookDiagnostics.failure("com.spotify.music", "Spotify 柔光玻璃", error);

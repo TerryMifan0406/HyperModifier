@@ -1,5 +1,8 @@
 package com.aritxonly.deadliner.ui.navigation
 
+import com.aritxonly.deadliner.ui.base.feedback.DefaultClickFeedback
+import androidx.compose.foundation.layout.wrapContentWidth
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -107,8 +110,16 @@ object MiuixFloatingTabBarDefaults {
     val VerticalContentPadding = 3.dp
     val IndicatorHorizontalOverflow = 3.dp
     val MaximumWidth = 380.dp
-    /** Keeps each tab compact when the bar is used beside a standalone action capsule. */
-    val MaximumItemWidth = 80.dp
+    // Matches the component used by MyHyperModifier (80dp per stacked tab, 380dp panel cap).
+    val MaximumStackedItemWidth = 80.dp
+    // 26dp icon + 5dp gap + ~49dp label + 24dp breathing room.
+    val MaximumHorizontalItemWidth = 104.dp
+
+    fun maximumWidth(itemCount: Int, layout: MiuixFloatingTabLayout) = when (layout) {
+        MiuixFloatingTabLayout.Stacked -> minOf(MaximumWidth, MaximumStackedItemWidth * itemCount)
+        MiuixFloatingTabLayout.Horizontal -> MaximumHorizontalItemWidth * itemCount + HorizontalContentPadding * 2
+    }
+    val MaximumItemWidth = MaximumStackedItemWidth
     val TabIconSize = 26.dp
     val DetachedIconSize = 28.dp
 
@@ -152,18 +163,6 @@ fun MiuixFloatingTabBar(
         motion.syncExternalSelection(selectedIndex)
     }
 
-    val indicatorPressScale by animateFloatAsState(
-        targetValue = if (motion.isPressed) {
-            FloatingTabMotionDefaults.PressedScale
-        } else {
-            1f
-        },
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMedium,
-        ),
-        label = "floating_tab_indicator_press_scale",
-    )
     val selectionAlpha by animateFloatAsState(
         targetValue = if (selectionVisible) 1f else 0f,
         animationSpec = spring(
@@ -175,11 +174,8 @@ fun MiuixFloatingTabBar(
 
     BoxWithConstraints(
         modifier = modifier
-            .then(if (fillAvailableWidth) Modifier else Modifier.widthIn(
-                max = minOf(
-                    MiuixFloatingTabBarDefaults.MaximumWidth,
-                    MiuixFloatingTabBarDefaults.MaximumItemWidth * items.size,
-                ),
+            .then(if (fillAvailableWidth) Modifier else Modifier.wrapContentWidth().widthIn(
+                max = MiuixFloatingTabBarDefaults.maximumWidth(items.size, layout),
             ))
             .fillMaxWidth()
             .height(MiuixFloatingTabBarDefaults.Height),
@@ -218,10 +214,6 @@ fun MiuixFloatingTabBar(
                 recipe = recipe
                     ?: DeadlinerGlassRecipes.floatingNavigation(advancedMaterial.fineTuning),
                 tint = tint,
-                interaction = GlassMaterialInteraction(
-                    refractionScale = if (motion.isPressed) 1.06f else 1f,
-                    highlightScale = if (motion.isPressed) 1.04f else 1f,
-                ),
                 backdrop = backdrop,
             ) {
                 BoxWithConstraints(
@@ -257,8 +249,8 @@ fun MiuixFloatingTabBar(
                             .fillMaxHeight()
                             .graphicsLayer {
                                 alpha = selectionAlpha
-                                scaleX = indicatorPressScale * (1f + stretch)
-                                scaleY = indicatorPressScale
+                                scaleX = 1f + stretch
+                                scaleY = 1f
                                 transformOrigin = TransformOrigin(transformOriginX, 0.5f)
                             }
                             .clip(MiuixFloatingTabBarDefaults.IndicatorShape)
@@ -355,7 +347,6 @@ fun MiuixFloatingTabBar(
                             FloatingTabItemContent(
                                 item = item,
                                 selected = selected,
-                                selectedPressProgress = if (selected && motion.isPressed) 1f else 0f,
                                 contentColor = contentColor,
                                 layout = layout,
                                 onClick = { onItemSelected(item) },
@@ -375,7 +366,6 @@ fun MiuixFloatingTabBar(
 private fun FloatingTabItemContent(
     item: MiuixFloatingTabItem,
     selected: Boolean,
-    selectedPressProgress: Float,
     contentColor: Color,
     layout: MiuixFloatingTabLayout,
     onClick: () -> Unit,
@@ -389,15 +379,6 @@ private fun FloatingTabItemContent(
         targetValue = targetColor,
         label = "floating_tab_content_color",
     )
-    val animatedIconScale by animateFloatAsState(
-        targetValue = floatingTabSelectedIconScale(selectedPressProgress),
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMedium,
-        ),
-        label = "floating_tab_selected_icon_scale",
-    )
-
     val interactionSource = remember { MutableInteractionSource() }
     val itemModifier = modifier
         .clip(MiuixFloatingTabBarDefaults.IndicatorShape)
@@ -406,7 +387,7 @@ private fun FloatingTabItemContent(
             enabled = item.enabled,
             role = Role.Tab,
             interactionSource = interactionSource,
-            indication = null,
+            indication = DefaultClickFeedback,
             onClick = onClick,
         )
     val icon: @Composable () -> Unit = {
@@ -414,11 +395,9 @@ private fun FloatingTabItemContent(
             val iconModifier = Modifier
                 .size(MiuixFloatingTabBarDefaults.TabIconSize)
                 .graphicsLayer {
-                    scaleX = animatedIconScale
-                    scaleY = animatedIconScale
                     val itemScale = item.iconScale.coerceIn(0.75f, 1.25f)
-                    scaleX *= itemScale
-                    scaleY *= itemScale
+                    scaleX = itemScale
+                    scaleY = itemScale
                 }
             val iconTint = if (item.preserveOriginalIconColors) {
                 Color.Unspecified

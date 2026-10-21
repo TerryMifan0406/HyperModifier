@@ -68,14 +68,19 @@ internal object BilibiliFloatingNavigation {
             nativeRefreshIntervalMs = 100L,
             lateAttachWindowMs = 60_000L,
             onAttachDiagnostic = BilibiliHooks::logDiagnostic,
-            useHardwareBackdrop = true,
+            useNativeGpuBackdrop = true,
+            inTreeOverlay = true,
+            useHardwareBackdrop = false,
             minimumCaptureIntervalMs = 0L,
             allowSoftwareBackdrop = false,
             matchDisplayBackdropRefreshRate = true,
-            sampleBackdropOnSourceFrame = true,
+            sampleBackdropOnSourceFrame = false,
             pixelCopyRetryDelayMs = 32L,
             requestImmersiveInsets = true,
             stableNavigationInset = true,
+            resolveNavigationInset = { activity ->
+                homeStates.getOrPut(activity) { HomeState(activity) }.immersion.navigationInsetPx
+            },
             retainNativeSuppressionDuringCover = true,
             detachedActionContainerColor = Color(0xFFFF6698),
             onChromeReplacement = { activity, replacing ->
@@ -90,8 +95,6 @@ internal object BilibiliFloatingNavigation {
         delegate.dispose(activity)
         homeStates.remove(activity)
     }
-    @JvmStatic fun onTouchEvent(activity: Activity, event: MotionEvent) =
-        delegate.onTouchEvent(activity, event)
 
     @JvmStatic fun setForeground(activity: Activity, foreground: Boolean) =
         delegate.setForeground(activity, foreground)

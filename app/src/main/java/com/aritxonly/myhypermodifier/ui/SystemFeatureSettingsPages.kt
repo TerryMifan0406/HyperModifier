@@ -169,6 +169,22 @@ import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
             enabled = settings.dynamicIslandOpacityEnabled && !settings.disableShadeGlassHooks,
             valueText = { "${it.toInt()}%" },
         )
+        SettingsSwitchItem(
+            "自定义通知背景",
+            "恢复通知中心、锁屏与息屏的专用深色材质",
+            settings.dynamicIslandNotificationOpacityEnabled,
+            { update(settings.copy(dynamicIslandNotificationOpacityEnabled = it)) },
+            enabled = !settings.disableShadeGlassHooks,
+        )
+        SettingsSliderItemWithLabel(
+            label = "通知背景不透明度",
+            value = settings.dynamicIslandNotificationOpacity,
+            valueRange = 0f..100f,
+            onValueChange = { update(settings.copy(dynamicIslandNotificationOpacity = it)) },
+            steps = 99,
+            enabled = settings.dynamicIslandNotificationOpacityEnabled && !settings.disableShadeGlassHooks,
+            valueText = { "${it.toInt()}%" },
+        )
         if (settings.disableShadeGlassHooks) Text(
             "玻璃材质修改已停用，可在通知/控制中心开启。",
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -224,6 +240,13 @@ import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
             items = listOf("跟随系统", "浅色图标", "深色图标"),
             selectedIndex = DesktopStatusBarPolicy.normalize(settings.desktopStatusBarIconMode),
             onSelectedIndexChange = { update(settings.copy(desktopStatusBarIconMode = it)) },
+            enabled = android.os.Build.VERSION.SDK_INT >= 36,
+        )
+        SettingsSwitchItem(
+            "4×7 布局保留桌面搜索",
+            "按桌面代码结构自动适配；需系统桌面与系统界面作用域，首次使用重启两者，再开启桌面搜索",
+            settings.desktopSearch4x7Enabled,
+            { update(settings.copy(desktopSearch4x7Enabled = it)) },
             enabled = android.os.Build.VERSION.SDK_INT >= 36,
         )
         SettingsSwitchItem(
@@ -362,7 +385,21 @@ import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 }
 
 @Composable internal fun StatusBarSettingsPage(padding: PaddingValues, settings: ModifierSettings, update: (ModifierSettings) -> Unit, onScroll: (Float) -> Unit) = SettingsScrollPage(padding, onScroll) {
+    SettingsSection(topLabel = "状态栏电池") {
+        SettingsSwitchItem(
+            "无数字电池使用实心框",
+            "使用内部数字样式的电池框，仍不显示数字；充电和性能标识保留在框内",
+            settings.statusBarSolidBatteryFrame,
+            { update(settings.copy(statusBarSolidBatteryFrame = it)) },
+        )
+    }
     SettingsSection(topLabel = "状态栏时间") {
+        SettingsSwitchItem(
+            "24 小时制隐藏小时前导零",
+            "例如 08:05 显示为 8:05，通知中心时钟同步生效",
+            settings.statusBarHideClockLeadingZero,
+            { update(settings.copy(statusBarHideClockLeadingZero = it)) },
+        )
         SettingsSwitchItem(
             "时间显示秒数",
             "仅在亮屏且状态栏时钟可见时每秒刷新",
@@ -812,6 +849,7 @@ internal fun RestartScopeDialogContent(
     restartAmap: Boolean,
     restartXiaomiCommunity: Boolean,
     restartBilibili: Boolean,
+    restartAlipay: Boolean,
     restartDouyin: Boolean,
     restartSpotify: Boolean,
     restartSettings: Boolean,
@@ -826,6 +864,7 @@ internal fun RestartScopeDialogContent(
     onAmapChange: (Boolean) -> Unit,
     onXiaomiCommunityChange: (Boolean) -> Unit,
     onBilibiliChange: (Boolean) -> Unit,
+    onAlipayChange: (Boolean) -> Unit,
     onDouyinChange: (Boolean) -> Unit,
     onSpotifyChange: (Boolean) -> Unit,
     onSettingsChange: (Boolean) -> Unit,
@@ -856,6 +895,7 @@ internal fun RestartScopeDialogContent(
                 restartAmap = restartAmap,
                 restartXiaomiCommunity = restartXiaomiCommunity,
                 restartBilibili = restartBilibili,
+                restartAlipay = restartAlipay,
                 restartDouyin = restartDouyin,
                 restartSpotify = restartSpotify,
                 restartSettings = restartSettings,
@@ -870,6 +910,7 @@ internal fun RestartScopeDialogContent(
                 onAmapChange = onAmapChange,
                 onXiaomiCommunityChange = onXiaomiCommunityChange,
                 onBilibiliChange = onBilibiliChange,
+                onAlipayChange = onAlipayChange,
                 onDouyinChange = onDouyinChange,
                 onSpotifyChange = onSpotifyChange,
                 onSettingsChange = onSettingsChange,
@@ -892,6 +933,7 @@ internal fun RestartScopeDialogContent(
     restartAmap: Boolean,
     restartXiaomiCommunity: Boolean,
     restartBilibili: Boolean,
+    restartAlipay: Boolean,
     restartDouyin: Boolean,
     restartSpotify: Boolean,
     restartSettings: Boolean,
@@ -906,6 +948,7 @@ internal fun RestartScopeDialogContent(
     onAmapChange: (Boolean) -> Unit,
     onXiaomiCommunityChange: (Boolean) -> Unit,
     onBilibiliChange: (Boolean) -> Unit,
+    onAlipayChange: (Boolean) -> Unit,
     onDouyinChange: (Boolean) -> Unit,
     onSpotifyChange: (Boolean) -> Unit,
     onSettingsChange: (Boolean) -> Unit,
@@ -995,6 +1038,12 @@ internal fun RestartScopeDialogContent(
         trailingContent = { DeadlinerCheckbox(restartSpotify, onSpotifyChange, enabled = editable && !restartSystem) },
     )
     SettingItem(
+        "支付宝",
+        "",
+        enabled = editable && !restartSystem,
+        trailingContent = { DeadlinerCheckbox(restartAlipay, onAlipayChange, enabled = editable && !restartSystem) },
+    )
+    SettingItem(
         "抖音", "",
         enabled = editable && !restartSystem,
         trailingContent = { DeadlinerCheckbox(restartDouyin, onDouyinChange, enabled = editable && !restartSystem) },
@@ -1049,6 +1098,7 @@ internal fun restartSelectedScope(
     system: Boolean,
     systemSettings: Boolean = false,
     launcher: Boolean = false,
+    alipay: Boolean = false,
     douyin: Boolean = false,
     onCompleted: (Boolean) -> Unit,
 ) {
@@ -1059,7 +1109,7 @@ internal fun restartSelectedScope(
         val command = when {
             system -> "reboot"
             systemUi || plugin || miLink || xiaomiHealth || market || miHome || amap ||
-                xiaomiCommunity || bilibili || spotify || douyin || systemSettings || launcher -> buildList {
+                xiaomiCommunity || bilibili || spotify || douyin || alipay || systemSettings || launcher -> buildList {
                 if (systemUi || plugin) add("killall com.android.systemui")
                 if (launcher) add("killall com.miui.home")
                 if (miLink) add("am force-stop com.milink.service")
@@ -1068,6 +1118,7 @@ internal fun restartSelectedScope(
                 if (miHome) add("am force-stop com.xiaomi.smarthome")
                 if (amap) add("am force-stop com.autonavi.minimap")
                 if (xiaomiCommunity) add("am force-stop com.xiaomi.vipaccount")
+                if (alipay) add("am force-stop com.eg.android.AlipayGphone")
                 if (douyin) add("am force-stop com.ss.android.ugc.aweme")
                 if (bilibili) add("am force-stop tv.danmaku.bili")
                 if (spotify) add("am force-stop com.spotify.music")

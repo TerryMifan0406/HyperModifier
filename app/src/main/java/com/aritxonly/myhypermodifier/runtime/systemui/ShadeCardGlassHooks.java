@@ -91,7 +91,7 @@ final class ShadeCardGlassHooks {
             module.hook(setter).setId("shade-card-glass-parameters")
                     .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
                     .intercept(chain -> {
-                        if (disableShadeGlassHooks) return chain.proceed();
+                        if (disableShadeGlassHooks || UnifiedGlassHooks.isReplaying()) return chain.proceed();
                         if (Boolean.TRUE.equals(REPLAYING.get())) return chain.proceed();
                         Object viewObject = chain.getThisObject();
                         Object values = chain.getArg(0);
@@ -101,6 +101,8 @@ final class ShadeCardGlassHooks {
                         View view = (View) viewObject;
                         if (!isLoaded()) markLoaded(view.getContext());
                         float[] original = (float[]) values;
+                        Object[] focusRecipe = FocusNotificationGlassTintHooks.rewrite(view, original);
+                        if (focusRecipe != null) return chain.proceed(focusRecipe);
                         float[] islandRecipe = DynamicIslandGlassTint.rewrite(view, original);
                         if (islandRecipe != null) {
                             return islandRecipe == original ? chain.proceed()
@@ -165,6 +167,14 @@ final class ShadeCardGlassHooks {
 
     /** Precise island ownership changes invalidate a pending generic replay once, not per frame. */
     static void forgetGenericCard(View view) { CARDS.remove(view); }
+
+    /** Return a Focus target to common card settings when its dedicated override is disabled. */
+    static void restoreGenericCard(View view, float[] recipe) {
+        if (isShadeNotificationBackground(view) && ShadeCardGlassPolicy.isActiveRecipe(recipe)) {
+            CARDS.put(view, new Card(recipe));
+        }
+    }
+
 
     static void refresh() {
         if (disableShadeGlassHooks || !REFRESH_STATE.changed(

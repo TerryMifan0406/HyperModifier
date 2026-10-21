@@ -151,6 +151,7 @@ internal class SpotifyPlaybackCapsule(private val activity: Activity) {
             }
         }
         player = null
+        glass?.close()
         glass = null
         nativeBackground = null
         insetLeft = 0
@@ -175,19 +176,19 @@ internal class SpotifyPlaybackCapsule(private val activity: Activity) {
 }
 
 /** Native View counterpart to the shared floating-navigation frost and capsule geometry. */
-private class SpotifyCapsuleDrawable(private val density: Float) : Drawable() {
-    private val tuning = AdvancedMaterialFineTuning.Default
-    private val recipe = DeadlinerGlassRecipes.floatingNavigation(tuning)
-    private val material = AdvancedMaterialSpec(enabled = true)
+private class SpotifyCapsuleDrawable(private val density: Float) : Drawable(), NavigationGlassObserver {
+    private var material = NavigationGlassRuntime.material
+    private var tuning = material.fineTuning
+    private var recipe = DeadlinerGlassRecipes.floatingNavigation(tuning)
     private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val tintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         val gray = (tuning.glassTintDarkGray * 255).roundToInt()
-        color = Color.argb((255 * tuning.navigationTintAlpha * tuning.glassTintAlphaMultiplier)
+        color = Color.argb((255 * (tuning.navigationTintAlpha * tuning.glassTintAlphaMultiplier).coerceIn(0f, 1f))
             .roundToInt(), gray, gray, gray)
     }
     private val edgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = tuning.fallbackEdgeWidthDp * density
+        strokeWidth = tuning.fallbackEdgeWidthDp * 0.75f * density
     }
     private val node = RenderNode("Spotify playback capsule")
     private var effectWidth = -1
@@ -230,8 +231,9 @@ private class SpotifyCapsuleDrawable(private val density: Float) : Drawable() {
                 setFloatUniform("depth_effect", recipe.refraction.depthEffect)
                 setFloatUniform("chromatic_aberration", recipe.refraction.chromaticAberration.value * density)
                 setFloatUniform("noise_coefficient", material.noiseCoefficient * recipe.blur.noiseMultiplier)
-                setFloatUniform("highlight_alpha", recipe.edgeOptics.highlightAlpha *
-                    0.85f * recipe.edgeOptics.darkHighlightMultiplier)
+                setFloatUniform("highlight_width", recipe.edgeOptics.rimWidth.value * density)
+                setFloatUniform("highlight_alpha", (recipe.edgeOptics.highlightAlpha *
+                    recipe.edgeOptics.darkHighlightMultiplier).coerceIn(0f, 1f))
                 setFloatUniform("highlight_gray", recipe.edgeOptics.highlightGray)
             }
             effect = RenderEffect.createChainEffect(
@@ -309,19 +311,34 @@ private class SpotifyCapsuleDrawable(private val density: Float) : Drawable() {
         }
         // Readable neutral fallback while the first backdrop is being captured.
         canvas.drawRoundRect(rect, radius, radius, tintPaint)
-        val edgeAlpha = if (Build.VERSION.SDK_INT >= 33 && recipe.refraction.enabled) {
-            recipe.edgeOptics.highlightAlpha * 0.85f * recipe.edgeOptics.darkHighlightMultiplier
-        } else recipe.edgeOptics.fallbackDarkAlpha * 0.45f
+        val edgeAlpha = (if (Build.VERSION.SDK_INT >= 33 && recipe.refraction.enabled) {
+            recipe.edgeOptics.highlightAlpha * recipe.edgeOptics.darkHighlightMultiplier
+        } else recipe.edgeOptics.fallbackDarkAlpha * 0.45f).coerceIn(0f, 1f)
         val gray = (recipe.edgeOptics.highlightGray * 255).roundToInt()
         edgePaint.shader = LinearGradient(0f, rect.top, 0f, rect.bottom,
             intArrayOf(Color.argb((edgeAlpha * 255).roundToInt(), gray, gray, gray),
-                Color.argb((edgeAlpha * 0.62f * 255).roundToInt(), gray, gray, gray),
-                Color.argb((edgeAlpha * 0.30f * 255).roundToInt(), gray, gray, gray)),
+                Color.argb((edgeAlpha * 0.72f * 255).roundToInt(), gray, gray, gray),
+                Color.argb((edgeAlpha * 0.46f * 255).roundToInt(), gray, gray, gray)),
             floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
         val edge = RectF(rect).apply { inset(edgePaint.strokeWidth / 2f, edgePaint.strokeWidth / 2f) }
         canvas.drawRoundRect(edge, radius, radius, edgePaint)
         canvas.restoreToCount(save)
     }
+
+    init { NavigationGlassRuntime.observe(this) }
+    override fun onNavigationGlassChanged() {
+        material = NavigationGlassRuntime.material
+        tuning = material.fineTuning
+        recipe = DeadlinerGlassRecipes.floatingNavigation(tuning)
+        val gray = (tuning.glassTintDarkGray * 255).roundToInt()
+        tintPaint.color = Color.argb((255 * (tuning.navigationTintAlpha * tuning.glassTintAlphaMultiplier).coerceIn(0f, 1f)).roundToInt(), gray, gray, gray)
+        edgePaint.strokeWidth = tuning.fallbackEdgeWidthDp * 0.75f * density
+        effectWidth = -1
+        dirty = true
+        updateGpu(gpuScene, gpuTarget)
+        invalidateSelf()
+    }
+    fun close() { NavigationGlassRuntime.remove(this); node.discardDisplayList() }
 
     override fun setAlpha(alpha: Int) { node.alpha = alpha / 255f; invalidateSelf() }
     override fun setColorFilter(colorFilter: ColorFilter?) {}

@@ -50,6 +50,7 @@ import com.aritxonly.deadliner.ui.navigation.MiuixFloatingTabLayout
 import com.aritxonly.deadliner.ui.theme.AdvancedMaterialSpec
 import com.aritxonly.deadliner.ui.theme.LocalAdvancedMaterialSpec
 import java.lang.reflect.Field
+import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
@@ -65,13 +66,13 @@ private const val AMAP_TAB_BAR_CLASS = "com.autonavi.bundle.uitemplate.tab.LiteT
 
 /** Replaces Amap's LiteTabBar visually while retaining its native click and analytics chain. */
 internal object AmapFloatingNavigation {
-    private val hosts = WeakHashMap<Activity, AmapNavigationHost>()
+    private val hosts = WeakHashMap<Activity, WeakReference<AmapNavigationHost>>()
     private val pendingAttachments = WeakHashMap<Activity, Runnable>()
     private val startupSuppressors = WeakHashMap<Activity, EarlyBottomBarSuppressor>()
 
     @JvmStatic
     fun prepare(activity: Activity) {
-        if (activity.isFinishing || activity.isDestroyed || hosts.containsKey(activity) ||
+        if (activity.isFinishing || activity.isDestroyed || hosts[activity]?.get() != null ||
             pendingAttachments.containsKey(activity) || startupSuppressors.containsKey(activity)
         ) return
 
@@ -87,7 +88,7 @@ internal object AmapFloatingNavigation {
 
     @JvmStatic
     fun attach(activity: Activity) {
-        if (activity.isFinishing || activity.isDestroyed || hosts.containsKey(activity) ||
+        if (activity.isFinishing || activity.isDestroyed || hosts[activity]?.get() != null ||
             pendingAttachments.containsKey(activity)
         ) return
 
@@ -129,7 +130,7 @@ internal object AmapFloatingNavigation {
             if (host == null) {
                 Log.w(TAG, "Amap 17.00.0 LiteTabBar was not found")
             } else {
-                hosts[activity] = host
+                hosts[activity] = WeakReference(host)
                 Log.i(TAG, "Attached Amap 17.00.0 soft-glass LiteTabBar")
             }
         }
@@ -141,12 +142,16 @@ internal object AmapFloatingNavigation {
     fun dispose(activity: Activity) {
         pendingAttachments.remove(activity)?.let(activity.window.decorView::removeCallbacks)
         startupSuppressors.remove(activity)?.restore()
-        hosts.remove(activity)?.dispose()
+        hosts.remove(activity)?.get()?.dispose()
     }
 
     @JvmStatic
     fun onTouchEvent(activity: Activity, event: MotionEvent) {
-        hosts[activity]?.onTouchEvent(event)
+        hosts[activity]?.get()?.onTouchEvent(event)
+    }
+
+    @JvmStatic fun setForeground(activity: Activity, value: Boolean) {
+        hosts[activity]?.get()?.setForeground(value)
     }
 
     private const val SETTINGS_RETRY_MS = 32L
@@ -177,6 +182,7 @@ private class AmapNavigationHost private constructor(
     private val nativeTabBar: View,
     samplingView: View,
 ) {
+    private var foreground = true
     private var state by mutableStateOf(AmapNavigationState())
     private var backdropSnapshot by mutableStateOf<ViewBackdropSnapshot?>(null)
     private val owner = InjectedViewTreeOwner()
@@ -195,15 +201,10 @@ private class AmapNavigationHost private constructor(
             }
         }
     }
-    private val sampler = ViewBackdropSampler(
+    private val sampler = WindowGpuBackdropSampler(
         source = samplingView,
         excludedView = composeView,
-        pixelCopyWindow = activity.window,
-        usePixelCopySampling = { state.visible },
-        allowSoftwareFallback = false,
-        matchDisplayRefreshRate = true,
-        sampleOnSourceFrame = true,
-        pixelCopyRetryDelayMs = 32L,
+        window = activity.window,
     ) { backdropSnapshot = it }
     private val iconSnapshotter = NativeTabIconSnapshotter(activity.resources, activity.theme)
     private val officialIconCache = mutableMapOf<String, NativeTabIconPair>()
@@ -268,6 +269,12 @@ private class AmapNavigationHost private constructor(
 
     fun onTouchEvent(event: MotionEvent) = sampler.onTouchEvent(event)
 
+    fun setForeground(value: Boolean) {
+        foreground = value
+        if (value) sampler.invalidateSamplingContext()
+        syncNativeState()
+    }
+
     fun dispose() {
         visibility.dispose()
         sampler.dispose()
@@ -304,6 +311,14 @@ private class AmapNavigationHost private constructor(
     }
 
     private fun syncNativeState() {
+        if (!foreground || !activity.hasWindowFocus() || !ModuleSettings.moduleHooksEnabled ||
+            !ModuleSettings.amapFloatingNavigationEnabled || !nativeTabBar.isAmapVisibleIgnoringAlpha()) {
+            if (state.visible) state = state.copy(visible = false)
+            sampler.setActive(false)
+            visibility.setVisible(false)
+            updateNativeChromeReplacement(false)
+            return
+        }
         val tabViews = nativeTabViews()
         val models = nativeTabModels()
         val currentModel = nativeTabBar.readAmapField("mCurrentTab")
@@ -449,7 +464,7 @@ private fun AmapNavigationContent(
     val materialColors = remember(dark) { MhmPresetColors.material(dark) }
     val miuixColors = remember(dark, materialColors) { MhmPresetColors.miuix(materialColors, dark) }
     val backdrop = rememberLayerBackdrop()
-    val hiddenNavigationLift = state.navigationLiftDp.coerceIn(0f, 48f).dp
+    val hiddenNavigationLift = hyperGlassifyHiddenNavigationLift()
     val items = state.tabs.mapIndexed { index, tab ->
         val nativeIcons = tab.icons?.takeUnless { ModuleSettings.amapMiuixIconsEnabled }
         val monochrome = nativeIcons != null && ModuleSettings.amapMonochromeIconsEnabled
@@ -473,11 +488,12 @@ private fun AmapNavigationContent(
     MaterialTheme(colorScheme = materialColors) {
         MiuixTheme(colors = miuixColors) {
             CompositionLocalProvider(
-                LocalAdvancedMaterialSpec provides AdvancedMaterialSpec(enabled = true),
+                LocalAdvancedMaterialSpec provides navigationGlassMaterial(),
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .navigationEdgeMask()
                         .navigationBarsPadding()
                         .padding(
                             start = 16.dp,

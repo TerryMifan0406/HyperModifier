@@ -92,6 +92,11 @@ final class AmapHooks {
                         }
                         return result;
                     });
+            NavigationHostLifecycleHooks.install(module, mainActivity,
+                    activity -> {
+                        AmapFloatingNavigation.attach(activity);
+                        AmapFloatingNavigation.setForeground(activity, true);
+                    }, activity -> AmapFloatingNavigation.setForeground(activity, false));
         } catch (Throwable throwable) {
             INSTALLED.set(false);
             module.log(Log.ERROR, TAG, "Could not install Amap navigation hooks", throwable);

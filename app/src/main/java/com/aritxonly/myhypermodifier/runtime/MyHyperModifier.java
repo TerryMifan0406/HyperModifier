@@ -102,6 +102,12 @@ public final class MyHyperModifier extends XposedModule {
 
     // Package callbacks also arrive for embedded WebView/shared libraries. Isolate by process,
     // otherwise a library callback installs global View hooks inside the Douyin-only adapter.
+    private static boolean isAlipayProcess() {
+        String process = Application.getProcessName();
+        return ModuleScopePackage.ALIPAY.equals(process)
+                || (process != null && process.startsWith(ModuleScopePackage.ALIPAY + ":"));
+    }
+
     private static boolean isDouyinProcess() {
         String process = Application.getProcessName();
         return ModuleScopePackage.DOUYIN.equals(process)
@@ -113,6 +119,7 @@ public final class MyHyperModifier extends XposedModule {
         String packageName = param.getPackageName();
         if (!ModuleScopePackage.INCALL_UI.equals(packageName)
                 && ModuleScopePackage.INCALL_UI.equals(Application.getProcessName())) return;
+        if (ModuleScopePackage.ALIPAY.equals(packageName) || isAlipayProcess()) return;
         if (LocalWidgetCatalogHooks.PACKAGE.equals(packageName)) return;
         if (ModuleScopePackage.INCALL_UI.equals(packageName)) {
             // InCallUI receives only material adapters, never generic resource hooks or bridges.
@@ -155,6 +162,7 @@ public final class MyHyperModifier extends XposedModule {
                     HookDiagnostics.unavailable(packageName, "自动兼容模式", SystemUiCrashGuard.compatibilityDetail());
                     return;
                 }
+                HookDiagnostics.observed(packageName, "自动兼容模式", "启动保护检查通过，未启用自动兼容模式");
                 startEarlySystemUiHooks(classLoader);
             } else if (SYSTEM_UI_PLUGIN.equals(packageName)) {
                 Application application = currentApplication();
@@ -166,6 +174,7 @@ public final class MyHyperModifier extends XposedModule {
                     HookDiagnostics.unavailable(packageName, "自动兼容模式", SystemUiCrashGuard.compatibilityDetail());
                     return;
                 }
+                HookDiagnostics.observed(packageName, "自动兼容模式", "启动保护检查通过，未启用自动兼容模式");
                 startEarlyPluginHooks(classLoader);
             } else if (XMSF.equals(packageName)) {
                 installSafely(packageName, "超级岛焦点认证", () -> SuperIslandWhitelistHooks.installXmsf(this, classLoader));
@@ -195,6 +204,16 @@ public final class MyHyperModifier extends XposedModule {
             try {
                 LocalWidgetCatalogHooks.install(this, param.getClassLoader(), getRemotePreferences("modifier_settings"));
             } catch (Throwable error) { HookDiagnostics.failure(packageName, "本地小组件目录", error); }
+            return;
+        }
+        if (ModuleScopePackage.ALIPAY.equals(packageName) || isAlipayProcess()) {
+            if (!ModuleScopePackage.ALIPAY.equals(packageName)
+                    || !packageName.equals(Application.getProcessName())) return;
+            try {
+                ModuleSettings.setRemotePreferences(getRemotePreferences("modifier_settings"));
+                ModuleSettings.ensureLoaded();
+                installSafely(packageName, "支付宝经典底栏", () -> AlipayHooks.install(this, param.getClassLoader()));
+            } catch (Throwable error) { HookDiagnostics.failure(packageName, "支付宝注入", error); }
             return;
         }
         if (ModuleScopePackage.DOUYIN.equals(packageName)) {
@@ -255,6 +274,7 @@ public final class MyHyperModifier extends XposedModule {
                     HookDiagnostics.unavailable(packageName, "自动兼容模式", SystemUiCrashGuard.compatibilityDetail());
                     return;
                 }
+                HookDiagnostics.observed(packageName, "自动兼容模式", "启动保护检查通过，未启用自动兼容模式");
             }
             installSafely(packageName, "全局 Glass 模糊半径", () -> GlobalGlassBlurHooks.install(this, packageName));
             if (SYSTEM_UI.equals(packageName)) installSafely(packageName, "通知清除按钮 Glass 半径",
@@ -294,7 +314,12 @@ public final class MyHyperModifier extends XposedModule {
                 return;
             }
             if (MARKET.equals(packageName)) {
-                installSafely(packageName, "小米应用商店", () -> MarketHooks.install(this, param.getClassLoader()));
+                // Keep the legacy adapter available on demand, with no navigation hooks by default.
+                ModuleSettings.onChanged(() -> {
+                    if (ModuleSettings.moduleHooksEnabled && ModuleSettings.marketFloatingNavigationEnabled) {
+                        installSafely(packageName, "小米应用商店", () -> MarketHooks.install(this, param.getClassLoader()));
+                    }
+                });
                 HookDiagnostics.ready(packageName);
                 log(Log.INFO, TAG, "Installed for " + packageName);
                 return;
@@ -334,6 +359,7 @@ public final class MyHyperModifier extends XposedModule {
                 installSafely(packageName, "卡片玻璃效果", () -> ShadeCardGlassHooks.install(this));
             }
             if (SYSTEM_UI.equals(packageName)) {
+                installSafely(packageName, "超级岛通知深色材质", () -> FocusNotificationGlassTintHooks.install(this, param.getClassLoader()));
                 if (SYSTEM_UI.equals(packageName)) installSafely(packageName, "超级岛白名单", () ->
                         SuperIslandWhitelistHooks.installSystemUi(this, param.getClassLoader()));
                 installSafely(packageName, "Spotify 媒体卡片", () -> SpotifyMediaCardHooks.install(this, param.getClassLoader()));
@@ -435,6 +461,7 @@ public final class MyHyperModifier extends XposedModule {
         if (classLoader == null || !EARLY_SYSTEM_UI_HOOKS_INSTALLED.compareAndSet(false, true)) return;
         installSafely(SYSTEM_UI, "超级岛白名单", () -> SuperIslandWhitelistHooks.installSystemUi(this, classLoader));
         installSafely(SYSTEM_UI, "卡片玻璃效果", () -> ShadeCardGlassHooks.install(this));
+        installSafely(SYSTEM_UI, "超级岛通知深色材质", () -> FocusNotificationGlassTintHooks.install(this, classLoader));
         installSafely(SYSTEM_UI, "手势提示线", () -> GestureHandleHooks.install(this, classLoader));
         installSafely(SYSTEM_UI, "悬浮通知迷你栏", () -> HeadsUpMiniBarHooks.install(this, classLoader));
         installSafely(SYSTEM_UI, "悬浮通知底部间距", () -> HeadsUpBottomMarginHooks.install(this, classLoader));

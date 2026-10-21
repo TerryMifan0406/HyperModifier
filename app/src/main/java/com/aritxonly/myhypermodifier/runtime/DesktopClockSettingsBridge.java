@@ -11,6 +11,7 @@ import android.util.Log;
 /** Publishes LSPosed-owned settings from SystemUI into the JNI-free launcher runtime. */
 final class DesktopClockSettingsBridge {
     private static final String KEY = "hide_desktop_clock_leading_zero";
+    private static final String SEARCH = "desktop_search_4x7_enabled";
     private static final String STACK = "deadliner_widget_stack_enabled";
     private static final String EXPERIMENT = "deadliner_clock_glass_experiment";
     private static final String GLASS = "deadliner_widget_glass_enabled";
@@ -31,6 +32,7 @@ final class DesktopClockSettingsBridge {
                         .setPackage("com.miui.home")
                         .putExtra("mhm_desktop_clock_control", true)
                         .putExtra("mhm_desktop_clock_enabled", enabled)
+                        .putExtra("mhm_desktop_search_4x7", moduleEnabled && preferences.getBoolean(SEARCH, false))
                         .putExtra("mhm_android_widget_stack", moduleEnabled && preferences.getBoolean(STACK, false))
                         .putExtra("mhm_android_widget_glass", moduleEnabled && preferences.getBoolean(GLASS, false))
                         .putExtra("mhm_deadliner_clock_glass", moduleEnabled && preferences.getBoolean(EXPERIMENT, false));
@@ -74,7 +76,7 @@ final class DesktopClockSettingsBridge {
             preferences = value;
             if (value != null) {
                 listener = (prefs, key) -> {
-                    if (KEY.equals(key) || STACK.equals(key) || GLASS.equals(key) || EXPERIMENT.equals(key) || AndroidWidgetGlassPolicy.KEY.equals(key) || AndroidWidgetGlassPolicy.CLOCK_STYLE_KEY.equals(key) || WidgetGlassStyles.KEY.equals(key) || "module_hooks_enabled".equals(key))
+                    if (SEARCH.equals(key) || KEY.equals(key) || STACK.equals(key) || GLASS.equals(key) || EXPERIMENT.equals(key) || AndroidWidgetGlassPolicy.KEY.equals(key) || AndroidWidgetGlassPolicy.CLOCK_STYLE_KEY.equals(key) || WidgetGlassStyles.KEY.equals(key) || "module_hooks_enabled".equals(key))
                         HANDLER.post(DesktopClockSettingsBridge::publishSoon);
                 };
                 value.registerOnSharedPreferenceChangeListener(listener);

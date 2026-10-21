@@ -108,6 +108,11 @@ final class MiHomeHooks {
                             name.equals("onSupportActionModeStarted"));
                 }
             }
+            NavigationHostLifecycleHooks.install(module, mainActivity,
+                    activity -> {
+                        MiHomeFloatingNavigation.attach(activity);
+                        MiHomeFloatingNavigation.setForeground(activity, true);
+                    }, activity -> MiHomeFloatingNavigation.setForeground(activity, false));
         } catch (Throwable throwable) {
             INSTALLED.set(false);
             module.log(Log.ERROR, TAG, "Could not install Mi Home navigation hooks", throwable);

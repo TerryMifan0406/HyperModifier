@@ -46,6 +46,7 @@ import com.aritxonly.deadliner.ui.navigation.MiuixFloatingTabLayout
 import com.aritxonly.deadliner.ui.theme.AdvancedMaterialSpec
 import com.aritxonly.deadliner.ui.theme.LocalAdvancedMaterialSpec
 import java.util.ArrayDeque
+import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
@@ -53,13 +54,13 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** Shared floating tabs beneath Spotify's original mini-player capsule. */
 internal object SpotifyFloatingNavigation {
-    private val hosts = WeakHashMap<Activity, SpotifyNavigationHost>()
+    private val hosts = WeakHashMap<Activity, WeakReference<SpotifyNavigationHost>>()
     private val pendingAttachments = WeakHashMap<Activity, Runnable>()
     private val startupSuppressors = WeakHashMap<Activity, EarlyBottomBarSuppressor>()
 
     @JvmStatic
     fun attach(activity: Activity) {
-        if (activity.isFinishing || activity.isDestroyed || hosts.containsKey(activity) ||
+        if (activity.isFinishing || activity.isDestroyed || hosts[activity]?.get() != null ||
             pendingAttachments.containsKey(activity)
         ) return
 
@@ -103,29 +104,27 @@ internal object SpotifyFloatingNavigation {
             if (host == null) {
                 Log.w(TAG, "Spotify navigation_bar was not found")
             } else {
-                hosts[activity] = host
+                hosts[activity] = WeakReference(host)
             }
         }
         pendingAttachments[activity] = retry
         activity.window.decorView.post(retry)
     }
 
-    @JvmStatic fun refresh(activity: Activity) = hosts[activity]?.refresh()
+    @JvmStatic fun refresh(activity: Activity) = hosts[activity]?.get()?.refresh()
     @JvmStatic fun setForeground(activity: Activity, foreground: Boolean) {
         if (!foreground) {
             pendingAttachments.remove(activity)?.let(activity.window.decorView::removeCallbacks)
             startupSuppressors.remove(activity)?.restore()
         }
-        hosts[activity]?.setForeground(foreground)
+        hosts[activity]?.get()?.setForeground(foreground)
     }
-    @JvmStatic fun onTouchEvent(activity: Activity, event: MotionEvent) =
-        hosts[activity]?.onTouchEvent(event) ?: Unit
 
     @JvmStatic
     fun dispose(activity: Activity) {
         pendingAttachments.remove(activity)?.let(activity.window.decorView::removeCallbacks)
         startupSuppressors.remove(activity)?.restore()
-        hosts.remove(activity)?.dispose()
+        hosts.remove(activity)?.get()?.dispose()
     }
 
     private const val SETTINGS_RETRY_MS = 32L
@@ -162,7 +161,6 @@ private class SpotifyNavigationHost private constructor(
     samplingView: View,
 ) {
     private var state by mutableStateOf(SpotifyNavigationState())
-    private var backdropSnapshot by mutableStateOf<ViewBackdropSnapshot?>(null)
     private val owner = InjectedViewTreeOwner()
     private val windowImmersion = InjectedBottomNavigationImmersion(activity)
     private val originalNavigationAlpha = nativeNavigationBar.alpha
@@ -173,26 +171,7 @@ private class SpotifyNavigationHost private constructor(
         "bottom_gradient_window_insets").mapNotNull(activity::findSpotifyView).associateWith { it.alpha }
     private val composeView = ComposeView(activity)
     private val visibility = FloatingNavigationVisibility(composeView)
-    private var samplingBounds: ViewBackdropBounds? = null
     private val gpuBackdrop = NativeGpuBackdrop.create(samplingView, composeView)
-    private val sampler = ViewBackdropSampler(
-        source = samplingView,
-        excludedView = composeView,
-        useHardwareCanvasSampling = gpuBackdrop == null,
-        minimumCaptureIntervalMs = 0L,
-        matchDisplayRefreshRate = true,
-        sampleOnSourceFrame = true,
-        captureAfterDraw = true,
-        onSnapshotChanged = { snapshot ->
-            val region = samplingBounds
-            backdropSnapshot = if (region != null && navigationBounds != null) {
-                snapshot?.forTarget(region, navigationBounds!!)
-            } else null
-            playback.updateBackdrop(if (region != null && playback.backdropBounds != null) {
-                snapshot?.forTarget(region, playback.backdropBounds!!)
-            } else null)
-        },
-    ).also { if (gpuBackdrop != null) it.setActive(false) }
     private val tabIcons = SpotifyIconLoader(activity)
     private val playback = SpotifyPlaybackCapsule(activity)
     private var foreground = true
@@ -205,7 +184,6 @@ private class SpotifyNavigationHost private constructor(
     }
     private val preDrawListener = ViewTreeObserver.OnPreDrawListener {
         syncNativeState()
-        if (gpuBackdrop == null) sampler.onFrame()
         true
     }
 
@@ -224,7 +202,6 @@ private class SpotifyNavigationHost private constructor(
             setContent {
                 SpotifyNavigationContent(
                     state = state,
-                    backdropSnapshot = backdropSnapshot,
                     gpuBackdrop = gpuBackdrop,
                     onBackdropBoundsChanged = { bounds ->
                         navigationBounds = bounds
@@ -250,24 +227,18 @@ private class SpotifyNavigationHost private constructor(
 
     fun refresh() {
         syncNativeState()
-        sampler.requestCaptureBurst()
     }
 
-    fun onTouchEvent(event: MotionEvent) {
-        if (gpuBackdrop == null) sampler.onTouchEvent(event)
-    }
 
     fun setForeground(value: Boolean) {
         foreground = value
         if (value) syncNativeState() else {
-            sampler.setActive(false)
             gpuBackdrop?.setActive(false)
         }
     }
 
     fun dispose() {
         visibility.dispose()
-        sampler.dispose()
         gpuBackdrop?.dispose()
         playback.dispose()
         composeView.removeOnLayoutChangeListener(composeLayoutListener)
@@ -303,7 +274,6 @@ private class SpotifyNavigationHost private constructor(
         }
         // Keep the native navigation usable when a version lacks required icon resources.
         val navigationVisible = navigationAvailable && tabs.size >= 3
-        sampler.setActive(gpuBackdrop == null && navigationVisible)
         gpuBackdrop?.setActive(navigationVisible)
         playback.sync(navigationVisible, navigationBounds)
         updateSamplingBounds()
@@ -334,23 +304,15 @@ private class SpotifyNavigationHost private constructor(
             selectedIndex = lastKnownIndex,
             visible = navigationVisible,
         )
-        val changed = next != state
-        val selectionChanged = next.selectedIndex != state.selectedIndex
-        val becameVisible = next.visible && !state.visible
         state = next
         visibility.setVisible(next.visible)
-        if (changed && (selectionChanged || becameVisible)) {
-            sampler.requestCaptureBurst()
-        }
     }
 
     private fun updateSamplingBounds() {
         val tab = navigationBounds ?: return
         val region = SpotifyDockBackdrop.union(tab, playback.backdropBounds)
-        samplingBounds = region
         gpuBackdrop?.setBounds(region)
         playback.updateGpuBackdrop(gpuBackdrop, playback.backdropBounds)
-        sampler.setNavigationBounds(region)
     }
 
     private fun selectDestination(index: Int) {
@@ -382,8 +344,7 @@ private class SpotifyNavigationHost private constructor(
         nativeNavigationBar.post {
             lastAccessibilityScanAt = Long.MIN_VALUE
             syncNativeState()
-            sampler.requestCaptureBurst()
-        }
+            }
     }
 
     private fun readAccessibilityTabs(force: Boolean = false): List<SpotifyAccessibilityTab> {
@@ -583,7 +544,6 @@ private class SpotifyIconLoader(private val activity: Activity) {
 @Composable
 private fun SpotifyNavigationContent(
     state: SpotifyNavigationState,
-    backdropSnapshot: ViewBackdropSnapshot?,
     gpuBackdrop: NativeGpuBackdrop?,
     onBackdropBoundsChanged: (ViewBackdropBounds) -> Unit,
     onDestinationSelected: (Int) -> Unit,
@@ -595,15 +555,16 @@ private fun SpotifyNavigationContent(
     val miuixColors = remember(dark, materialColors) { MhmPresetColors.miuix(materialColors, dark) }
     val backdrop = rememberLayerBackdrop()
     var nativeBackdropBounds by remember { mutableStateOf<ViewBackdropBounds?>(null) }
-    val opticalBackdrop = if (gpuBackdrop?.geometry != null || backdropSnapshot != null) backdrop else null
+    val opticalBackdrop = if (gpuBackdrop?.geometry != null) backdrop else null
     val hiddenNavigationLift = hyperGlassifyHiddenNavigationLift()
 
     MaterialTheme(colorScheme = materialColors) {
         MiuixTheme(colors = miuixColors) {
-            CompositionLocalProvider(LocalAdvancedMaterialSpec provides AdvancedMaterialSpec(enabled = true)) {
+            CompositionLocalProvider(LocalAdvancedMaterialSpec provides navigationGlassMaterial()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .navigationEdgeMask()
                         .navigationBarsPadding()
                         .padding(
                             start = 20.dp,
@@ -615,7 +576,6 @@ private fun SpotifyNavigationContent(
                     contentAlignment = Alignment.Center,
                 ) {
                     if (gpuBackdrop != null) NativeGpuBackdropLayer(gpuBackdrop, backdrop, nativeBackdropBounds)
-                    else ViewBackdropLayer(backdropSnapshot, backdrop)
                     MiuixFloatingTabBar(
                         items = state.tabs.mapIndexed { index, tab ->
                             MiuixFloatingTabItem(

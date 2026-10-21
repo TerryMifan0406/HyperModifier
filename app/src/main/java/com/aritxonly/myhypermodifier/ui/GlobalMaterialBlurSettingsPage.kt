@@ -14,8 +14,20 @@ internal fun GlobalMaterialBlurSettingsPage(
     padding: PaddingValues,
     settings: ModifierSettings,
     update: (ModifierSettings) -> Unit,
+    onOpenUnifiedGlass: () -> Unit,
     onScroll: (Float) -> Unit,
 ) = SettingsScrollPage(padding, onScroll) {
+    SettingsSection {
+        NavigationSettingItem(
+            title = "统一玻璃材质",
+            summary = when {
+                settings.disableShadeGlassHooks -> "玻璃材质修改已停用"
+                settings.unifiedGlassEnabled -> "已启用 · 共用边缘、反射和折射参数"
+                else -> "选择基准材质，统一光学参数"
+            },
+            onClick = onOpenUnifiedGlass,
+        )
+    }
     SettingsSection(topLabel = "Glass 模糊") {
         SettingsSwitchItem(
             "自定义 Glass 模糊半径",
@@ -100,8 +112,8 @@ internal fun GlobalMaterialBlurEntry(settings: ModifierSettings, onOpen: () -> U
     }
     SettingsSection {
         NavigationSettingItem(
-            title = "全局材质模糊",
-            summary = "$glass；背景模糊：${settings.globalBackgroundBlurPercent.toInt()}%",
+            title = "全局玻璃材质与模糊",
+            summary = "统一光学参数：${if (settings.unifiedGlassEnabled && !settings.disableShadeGlassHooks) "已启用" else "未启用"}；$glass；背景模糊：${settings.globalBackgroundBlurPercent.toInt()}%",
             onClick = onOpen,
         )
     }

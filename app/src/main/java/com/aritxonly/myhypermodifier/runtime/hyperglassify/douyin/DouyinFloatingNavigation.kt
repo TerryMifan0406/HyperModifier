@@ -35,7 +35,7 @@ internal object DouyinFloatingNavigation {
     private var sceneAccessResolved = false
     private val delegate = NativeViewBottomBarNavigation(
         NativeViewBottomBarTarget(
-            logName = "Douyin", testedVersion = "40.7.0",
+            logName = "Douyin", bottomEdgeMask = false, testedVersion = "40.7.0",
             // Outer FrameLayout has no anti-burn setAlpha override; inner state remains authoritative.
             bottomBarClassNames = emptySet(), // Only attach after the inner bar is available.
             resolveBottomBar = ::findReadyBar,

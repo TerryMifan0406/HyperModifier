@@ -56,6 +56,7 @@ import com.aritxonly.deadliner.ui.theme.AdvancedMaterialSpec
 import com.aritxonly.deadliner.ui.theme.LocalAdvancedMaterialSpec
 import java.lang.reflect.Field
 import java.util.IdentityHashMap
+import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
@@ -82,14 +83,14 @@ private const val MI_HOME_MICO_ACTION_MENU_CLASS =
 
 /** Replaces Mi Home's visual tab strip while keeping its native routing and analytics intact. */
 internal object MiHomeFloatingNavigation {
-    private val hosts = WeakHashMap<Activity, MiHomeNavigationHost>()
+    private val hosts = WeakHashMap<Activity, WeakReference<MiHomeNavigationHost>>()
     private val pendingAttachments = WeakHashMap<Activity, Runnable>()
     private val startupSuppressors = WeakHashMap<Activity, EarlyBottomBarSuppressor>()
 
     /** Starts immersion before Mi Home inflates its first frame. */
     @JvmStatic
     fun prepare(activity: Activity) {
-        if (activity.isFinishing || activity.isDestroyed || hosts.containsKey(activity) ||
+        if (activity.isFinishing || activity.isDestroyed || hosts[activity]?.get() != null ||
             pendingAttachments.containsKey(activity) || startupSuppressors.containsKey(activity)
         ) return
 
@@ -108,7 +109,7 @@ internal object MiHomeFloatingNavigation {
 
     @JvmStatic
     fun attach(activity: Activity) {
-        if (activity.isFinishing || activity.isDestroyed || hosts.containsKey(activity) ||
+        if (activity.isFinishing || activity.isDestroyed || hosts[activity]?.get() != null ||
             pendingAttachments.containsKey(activity)
         ) return
 
@@ -147,7 +148,7 @@ internal object MiHomeFloatingNavigation {
             if (host == null) {
                 Log.w(TAG, "Mi Home 11.8.605 navigation views were not found")
             } else {
-                hosts[activity] = host
+                hosts[activity] = WeakReference(host)
             }
         }
         pendingAttachments[activity] = retry
@@ -158,22 +159,26 @@ internal object MiHomeFloatingNavigation {
     fun dispose(activity: Activity) {
         pendingAttachments.remove(activity)?.let(activity.window.decorView::removeCallbacks)
         startupSuppressors.remove(activity)?.restore()
-        hosts.remove(activity)?.dispose()
+        hosts.remove(activity)?.get()?.dispose()
     }
 
     @JvmStatic
     fun onTouchEvent(activity: Activity, event: MotionEvent) {
-        hosts[activity]?.onTouchEvent(event)
+        hosts[activity]?.get()?.onTouchEvent(event)
     }
 
     @JvmStatic
     fun onActionModeStarted(activity: Activity, mode: Any) {
-        hosts[activity]?.onActionModeStarted(mode)
+        hosts[activity]?.get()?.onActionModeStarted(mode)
     }
 
     @JvmStatic
     fun onActionModeFinished(activity: Activity, mode: Any) {
-        hosts[activity]?.onActionModeFinished(mode)
+        hosts[activity]?.get()?.onActionModeFinished(mode)
+    }
+
+    @JvmStatic fun setForeground(activity: Activity, value: Boolean) {
+        hosts[activity]?.get()?.setForeground(value)
     }
 
     private const val VIEW_RETRY_MS = 16L
@@ -228,6 +233,7 @@ private class MiHomeNavigationHost private constructor(
     private val contentView: View,
     samplingView: View,
 ) {
+    private var foreground = true
     private var state by mutableStateOf(MiHomeNavigationState())
     private val activeActionModes = IdentityHashMap<Any, Boolean>()
     private var contextualActionBarVisible = false
@@ -254,15 +260,10 @@ private class MiHomeNavigationHost private constructor(
             }
         }
     }
-    private val sampler = ViewBackdropSampler(
+    private val sampler = WindowGpuBackdropSampler(
         source = samplingView,
         excludedView = composeView,
-        pixelCopyWindow = activity.window,
-        usePixelCopySampling = { state.visible },
-        allowSoftwareFallback = false,
-        matchDisplayRefreshRate = true,
-        sampleOnSourceFrame = true,
-        pixelCopyRetryDelayMs = 32L,
+        window = activity.window,
     ) { backdropSnapshot = it }
     private val contentBottomPadding = InjectedScrollableContentBottomPadding(contentView)
     private val iconSnapshotter = MiHomeTabIconSnapshotter(activity)
@@ -362,6 +363,12 @@ private class MiHomeNavigationHost private constructor(
 
     fun onActionModeFinished(mode: Any) {
         activeActionModes.remove(mode)
+        syncNativeState()
+    }
+
+    fun setForeground(value: Boolean) {
+        foreground = value
+        if (value) sampler.invalidateSamplingContext()
         syncNativeState()
     }
 
@@ -470,7 +477,7 @@ private class MiHomeNavigationHost private constructor(
         val next = MiHomeNavigationState(
             tabs = tabStates,
             selectedIndex = selected,
-            visible = ModuleSettings.miHomeFloatingNavigationEnabled &&
+            visible = foreground && ModuleSettings.moduleHooksEnabled && ModuleSettings.miHomeFloatingNavigationEnabled &&
                 activity.hasWindowFocus() &&
                 nativeTabLayout.visibility == View.VISIBLE &&
                 nativeTabLayout.isShown && tabs.size > 1 && activeActionModes.isEmpty() &&
@@ -487,7 +494,7 @@ private class MiHomeNavigationHost private constructor(
         if (selectionChanged) sampler.invalidateSamplingContext()
         // Reserve immersive content space only while our dock or a contextual toolbar needs it.
         updateNativeChromeReplacement(
-            ModuleSettings.miHomeFloatingNavigationEnabled &&
+            foreground && ModuleSettings.moduleHooksEnabled && ModuleSettings.miHomeFloatingNavigationEnabled &&
                 (next.visible || activeActionModes.isNotEmpty() || contextualActionBarVisible),
         )
         visibility.setVisible(next.visible)
@@ -680,7 +687,7 @@ private fun MiHomeNavigationContent(
     val materialColors = remember(dark) { MhmPresetColors.material(dark) }
     val miuixColors = remember(dark, materialColors) { MhmPresetColors.miuix(materialColors, dark) }
     val backdrop = rememberLayerBackdrop()
-    val hiddenNavigationLift = state.navigationLiftDp.coerceIn(0f, 48f).dp
+    val hiddenNavigationLift = hyperGlassifyHiddenNavigationLift()
     val navigationPadding = if (state.navigationInsetPx > 0) {
         Modifier.padding(bottom = with(LocalDensity.current) { state.navigationInsetPx.toDp() })
     } else {
@@ -733,7 +740,7 @@ private fun MiHomeNavigationContent(
     MaterialTheme(colorScheme = materialColors) {
         MiuixTheme(colors = miuixColors) {
             CompositionLocalProvider(
-                LocalAdvancedMaterialSpec provides AdvancedMaterialSpec(enabled = true),
+                LocalAdvancedMaterialSpec provides navigationGlassMaterial(),
             ) {
                 Box(
                     modifier = Modifier
@@ -861,6 +868,7 @@ private data class MiHomeNativeIcon(
 private class MiHomeTabIconSnapshotter(activity: Activity) {
     private val resources = activity.resources
     private val delegate = NativeTabIconSnapshotter(activity.resources, activity.theme)
+    private val lottieFields = HashMap<Class<*>, MiHomeLottieFields>()
     private val animationViewId = activity.resources.getIdentifier("e46", "id", activity.packageName)
     private val staticViewId = activity.resources.getIdentifier("e48", "id", activity.packageName)
 
@@ -880,20 +888,14 @@ private class MiHomeTabIconSnapshotter(activity: Activity) {
         // both: caching only getCurrentJson() freezes the Compose copy in whichever state happened
         // to be active when it was first read.
         val index = (tab.invokeNoArg("getIndex") as? Int) ?: 0
-        val pinned = (tab.readField("Oooo00o") as? Boolean) == true
+        // Resolve a complete versioned layout once per class, never mix unrelated obfuscated
+        // fields. Read live values when selection changes so pin/home resources stay current.
+        val fields = lottieFields.getOrPut(tab.javaClass) { MiHomeLottieFields.resolve(tab.javaClass) }
         val currentResource = (tab.invokeNoArg("getCurrentJson") as? Int).rawResourceOrNull()
-        val loadedResource = (tab.readField("Oooo00O") as? Int).rawResourceOrNull()
-        val ordinaryUnselected = (tab.readField("OooOoo") as? Int).rawResourceOrNull()
-        val selectedCandidate = if (index == 0) {
-            tab.readField(if (pinned) "OooOooO" else "OooOooo") as? Int
-        } else {
-            tab.readField(if (pinned) "OooOoOO" else "OooOoo0") as? Int
-        }
-        val unselectedCandidate = if (index == 0) {
-            tab.readField("Oooo000") as? Int
-        } else {
-            tab.readField("OooOoo") as? Int
-        }
+        val loadedResource = fields.loaded(tab).rawResourceOrNull()
+        val ordinaryUnselected = fields.unselected(tab, false).rawResourceOrNull()
+        val selectedCandidate = fields.selected(tab, index == 0)
+        val unselectedCandidate = fields.unselected(tab, index == 0)
         val selectedResource = selectedCandidate.rawResourceOrNull()
             ?: currentResource.takeIf { selected }
             ?: loadedResource

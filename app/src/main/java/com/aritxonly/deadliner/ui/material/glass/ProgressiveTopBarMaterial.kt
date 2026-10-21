@@ -72,7 +72,11 @@ fun ProgressiveTopBarMaterial(
             CompositionLocalProvider(
                 LocalImmersiveTopBarEnabled provides true,
                 LocalProgressiveTopBarMaterialHosted provides true,
-            ) { Box(Modifier.fillMaxWidth(), content = content) }
+            ) {
+                TopBarGlassShadowHost {
+                    Box(Modifier.fillMaxWidth(), content = content)
+                }
+            }
         }.map { it.measure(constraints.copy(minHeight = 0)) }
         val width = (foreground.maxOfOrNull { it.width } ?: constraints.minWidth)
             .coerceIn(constraints.minWidth, constraints.maxWidth)

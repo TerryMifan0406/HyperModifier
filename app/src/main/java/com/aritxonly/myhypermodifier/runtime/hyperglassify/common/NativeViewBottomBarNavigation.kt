@@ -61,6 +61,7 @@ import com.aritxonly.deadliner.ui.material.glass.SoftGlassFloatingActionButton
 import com.aritxonly.deadliner.ui.theme.AdvancedMaterialSpec
 import com.aritxonly.deadliner.ui.theme.LocalAdvancedMaterialSpec
 import java.lang.reflect.Method
+import java.lang.ref.WeakReference
 import java.util.IdentityHashMap
 import java.util.WeakHashMap
 import kotlin.math.max
@@ -71,6 +72,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 /** Configuration for classic View bottom bars whose native routing must remain authoritative. */
 internal data class NativeViewBottomBarTarget(
     val logName: String,
+    val bottomEdgeMask: Boolean = true,
     val testedVersion: String,
     val bottomBarClassNames: Set<String>,
     val resolveBottomBar: ((View) -> View?)? = null,
@@ -87,6 +89,10 @@ internal data class NativeViewBottomBarTarget(
     val trimNativeIconTransparentPadding: Boolean = false,
     val resolveTabViews: ((View) -> List<View>)? = null,
     val resolveTabLabel: ((View, Int) -> String?)? = null,
+    val resolveTabBadge: ((View) -> Boolean)? = null,
+    val resolveTabIcons: ((View, Boolean) -> NativeTabIconPair?)? = null,
+    val resolveContentHost: ((View) -> View?)? = null,
+    val refreshContentPaddingEverySync: Boolean = true,
     val selectedIndexMethodName: String? = null,
     val resolveSelectedIndex: ((View, List<View>) -> Int)? = null,
     val tabVisible: (String, Int) -> Boolean = { _, _ -> true },
@@ -107,6 +113,7 @@ internal data class NativeViewBottomBarTarget(
     val useVideoSurfaceBackdrop: Boolean = false,
     val inTreeOverlay: Boolean = false,
     val gpuContentResourceName: String? = null,
+    val resolveGpuSource: ((View) -> View?)? = null,
     val manageWindowImmersion: Boolean = true,
     val minimumCaptureIntervalMs: Long = 0L,
     val allowSoftwareBackdrop: Boolean = true,
@@ -115,6 +122,7 @@ internal data class NativeViewBottomBarTarget(
     val pixelCopyRetryDelayMs: Long = 1_000L,
     val requestImmersiveInsets: Boolean = false,
     val stableNavigationInset: Boolean = false,
+    val resolveNavigationInset: (Activity) -> Int = { 0 },
     val onChromeReplacement: (Activity, Boolean) -> Unit = { _, _ -> },
     val retainNativeSuppressionDuringCover: Boolean = false,
     val retainReplacementDuringCover: Boolean = false,
@@ -130,12 +138,13 @@ internal data class NativeViewBottomBarTarget(
 internal class NativeViewBottomBarNavigation(
     private val target: NativeViewBottomBarTarget,
 ) {
-    private val hosts = WeakHashMap<Activity, NativeViewBottomBarHost>()
+    // Attached View listeners/composition own the host; this index must not own its Activity.
+    private val hosts = WeakHashMap<Activity, WeakReference<NativeViewBottomBarHost>>()
     private val pendingAttachments = WeakHashMap<Activity, Runnable>()
     private val startupSuppressors = WeakHashMap<Activity, EarlyBottomBarSuppressor>()
 
     fun prepare(activity: Activity) {
-        if (activity.isFinishing || activity.isDestroyed || hosts.containsKey(activity) ||
+        if (activity.isFinishing || activity.isDestroyed || hosts[activity]?.get() != null ||
             pendingAttachments.containsKey(activity) || startupSuppressors.containsKey(activity)
         ) return
 
@@ -152,7 +161,7 @@ internal class NativeViewBottomBarNavigation(
     }
 
     fun attach(activity: Activity) {
-        if (activity.isFinishing || activity.isDestroyed || hosts.containsKey(activity) ||
+        if (activity.isFinishing || activity.isDestroyed || hosts[activity]?.get() != null ||
             pendingAttachments.containsKey(activity)
         ) return
 
@@ -213,7 +222,7 @@ internal class NativeViewBottomBarNavigation(
                 Log.w(TAG, "${target.logName} ${target.testedVersion} bottom bar was not found")
             } else {
                 target.onAttachDiagnostic("floating navigation attached")
-                hosts[activity] = host
+                hosts[activity] = WeakReference(host)
                 Log.i(TAG, "Attached ${target.logName} ${target.testedVersion} soft-glass navigation")
             }
         }
@@ -224,21 +233,25 @@ internal class NativeViewBottomBarNavigation(
     fun dispose(activity: Activity) {
         pendingAttachments.remove(activity)?.let(activity.window.decorView::removeCallbacks)
         startupSuppressors.remove(activity)?.restore()
-        hosts.remove(activity)?.dispose()
+        hosts.remove(activity)?.get()?.dispose()
     }
 
     fun onTouchEvent(activity: Activity, event: MotionEvent) {
-        hosts[activity]?.onTouchEvent(event)
+        hosts[activity]?.get()?.onTouchEvent(event)
     }
 
-    fun isReplacingBottomBar(view: View): Boolean = hosts.values.any { it.isReplacing(view) }
+    fun isReplacingBottomBar(view: View): Boolean = hosts.values.any { it.get()?.isReplacing(view) == true }
 
     fun setForeground(activity: Activity, foreground: Boolean) {
-        hosts[activity]?.setForeground(foreground)
+        hosts[activity]?.get()?.setForeground(foreground)
+    }
+
+    fun invalidateContentPadding(activity: Activity) {
+        hosts[activity]?.get()?.invalidateContentPadding()
     }
 
     fun refresh(activity: Activity) {
-        hosts[activity]?.refresh()
+        hosts[activity]?.get()?.refresh()
     }
 
     private companion object {
@@ -274,7 +287,7 @@ private class NativeViewBottomBarHost private constructor(
     private val overlayParent: ViewGroup,
     private val nativeBottomBar: View,
     private val target: NativeViewBottomBarTarget,
-    contentHost: View?,
+    private val contentHost: View?,
     reservationViews: List<View>,
 ) {
     private var state by mutableStateOf(NativeViewNavigationState())
@@ -286,15 +299,17 @@ private class NativeViewBottomBarHost private constructor(
     private val composeView = ComposeView(activity)
     private val visibility = FloatingNavigationVisibility(composeView, windowManager.takeUnless { target.inTreeOverlay })
     private var composeWindowAttached = false
-    private val gpuSource = target.gpuContentResourceName?.let { name ->
+    private val gpuSource = target.resolveGpuSource?.invoke(nativeBottomBar)
+        ?: target.gpuContentResourceName?.let { name ->
         val id = activity.resources.getIdentifier(name, "id", activity.packageName)
         overlayParent.findViewById<View>(id)
-    } ?: overlayParent.takeUnless { target.inTreeOverlay }
+    } ?: contentHost.takeIf { target.inTreeOverlay }
+        ?: overlayParent.takeUnless { target.inTreeOverlay }
     private val gpuBackdrop = if (target.useNativeGpuBackdrop && gpuSource != null)
         NativeGpuBackdrop.create(gpuSource, composeView, target.useVideoSurfaceBackdrop) else null
     private val videoSampler = if (target.useVideoSurfaceBackdrop && gpuSource != null)
         DouyinSurfaceBackdrop(gpuSource) { videoSnapshot = it } else null
-    private val sampler = ViewBackdropSampler(
+    private val sampler = if (target.useNativeGpuBackdrop || target.inTreeOverlay) null else ViewBackdropSampler(
         source = overlayParent,
         excludedView = composeView,
         pixelCopyWindow = activity.window.takeIf { target.useHardwareBackdrop },
@@ -304,15 +319,16 @@ private class NativeViewBottomBarHost private constructor(
         matchDisplayRefreshRate = target.matchDisplayBackdropRefreshRate,
         sampleOnSourceFrame = target.sampleBackdropOnSourceFrame,
         pixelCopyRetryDelayMs = target.pixelCopyRetryDelayMs,
-    ) { backdropSnapshot = it }.also {
-        // In-tree Window PixelCopy would include this very glass surface and feed it back.
-        if (gpuBackdrop != null || target.inTreeOverlay) it.setActive(false)
-    }
+    ) { backdropSnapshot = it }
     private val refreshPolicy = NavigationRefreshPolicy(target.nativeRefreshIntervalMs)
     private var foreground = true
     private val stableNavigationInset = StableNavigationBarInset()
     private val iconSnapshotter = NativeTabIconSnapshotter(activity.resources, activity.theme)
     private val trimmedIconCache = WeakHashMap<View, TrimmedNativeIconEntry>()
+    private val contentPaddingPolicy = NavigationContentPaddingPolicy()
+    private val contentLayoutListener = View.OnLayoutChangeListener { _, l, t, r, b, oldL, oldT, oldR, oldB ->
+        if (r - l != oldR - oldL || b - t != oldB - oldT) contentPaddingPolicy.invalidate()
+    }
     private val contentBottomPadding = contentHost?.let(::InjectedScrollableContentBottomPadding)
     private val originalContentBottomMargins = IdentityHashMap<View, Int>().apply {
         reservationViews.forEach { view ->
@@ -326,15 +342,13 @@ private class NativeViewBottomBarHost private constructor(
     private var nativeTabsReady = false
     private val composeLayoutListener = View.OnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
         val contentInset = view.injectedNavigationContentInsetPx()
-        if (replacingNativeChrome && contentInset > 0 &&
-            contentBottomPadding?.apply(contentInset) == true
-        ) {
-            sampler.requestCaptureBurst()
+        if (replacingNativeChrome && applyContentPadding(contentInset)) {
+            sampler?.requestCaptureBurst()
         }
     }
     private val preDrawListener = ViewTreeObserver.OnPreDrawListener {
         syncNativeState()
-        if (gpuBackdrop == null && !target.inTreeOverlay && state.sampleBackdrop) sampler.onFrame()
+        if (gpuBackdrop == null && !target.inTreeOverlay && state.sampleBackdrop) sampler?.onFrame()
         true
     }
 
@@ -386,19 +400,22 @@ private class NativeViewBottomBarHost private constructor(
             composeWindowAttached = true
             visibility.onAttached()
         }
+        if (!target.refreshContentPaddingEverySync) contentHost?.addOnLayoutChangeListener(contentLayoutListener)
         composeView.addOnLayoutChangeListener(composeLayoutListener)
         overlayParent.viewTreeObserver.addOnPreDrawListener(preDrawListener)
-        composeView.post { sampler.requestCaptureBurst(900L) }
+        sampler?.let { legacySampler -> composeView.post { legacySampler.requestCaptureBurst(900L) } }
     }
 
     fun onTouchEvent(event: MotionEvent) {
-        if (gpuBackdrop == null && !target.inTreeOverlay && state.visible && state.sampleBackdrop) sampler.onTouchEvent(event)
+        if (gpuBackdrop == null && !target.inTreeOverlay && state.visible && state.sampleBackdrop) sampler?.onTouchEvent(event)
     }
 
     fun setForeground(value: Boolean) {
         foreground = value
         refresh()
     }
+
+    fun invalidateContentPadding() = contentPaddingPolicy.invalidate()
 
     fun refresh() = syncNativeState(force = true)
 
@@ -407,9 +424,10 @@ private class NativeViewBottomBarHost private constructor(
     fun dispose() {
         target.onChromeReplacement(activity, false)
         visibility.dispose()
-        sampler.dispose()
+        sampler?.dispose()
         videoSampler?.dispose()
         gpuBackdrop?.dispose()
+        if (!target.refreshContentPaddingEverySync) contentHost?.removeOnLayoutChangeListener(contentLayoutListener)
         composeView.removeOnLayoutChangeListener(composeLayoutListener)
         contentBottomPadding?.dispose()
         if (overlayParent.viewTreeObserver.isAlive) {
@@ -435,7 +453,7 @@ private class NativeViewBottomBarHost private constructor(
             !target.overlayAllowed(activity)
         ) {
             if (state.visible) state = state.copy(visible = false)
-            sampler.setActive(false)
+            sampler?.setActive(false)
             gpuBackdrop?.setActive(false)
             videoSampler?.setActive(false)
             visibility.setVisible(false)
@@ -477,19 +495,21 @@ private class NativeViewBottomBarHost private constructor(
             sampleBackdrop = target.sampleBackdropForTabs(nativeTabs, selected),
             navigationLiftDp = ModuleSettings.hyperGlassifyHiddenNavigationLift.coerceIn(0f, 48f),
             navigationInsetPx = if (target.stableNavigationInset) {
-                stableNavigationInset.bottomPx(composeView, activity.window.decorView)
+                stableNavigationInset.bottomPx(composeView, activity.window.decorView,
+                    target.resolveNavigationInset(activity))
             } else 0,
         )
         val selectionChanged = next.selectedIndex != state.selectedIndex
         val becameVisible = next.visible && !state.visible
+        if (selectionChanged || becameVisible) contentPaddingPolicy.invalidate()
         if (next != state) state = next
-        if (selectionChanged) sampler.invalidateSamplingContext()
+        if (selectionChanged) sampler?.invalidateSamplingContext()
         updateNativeChromeReplacement(next.visible)
         visibility.setVisible(next.visible)
-        sampler.setActive(gpuBackdrop == null && !target.inTreeOverlay && next.visible && next.sampleBackdrop)
+        sampler?.setActive(gpuBackdrop == null && !target.inTreeOverlay && next.visible && next.sampleBackdrop)
         gpuBackdrop?.setActive(next.visible)
         videoSampler?.setActive(next.visible && !next.sampleBackdrop)
-        if (selectionChanged || becameVisible) sampler.requestCaptureBurst()
+        if (selectionChanged || becameVisible) sampler?.requestCaptureBurst()
     }
 
     private fun View.readTabState(index: Int, selected: Boolean): NativeViewTabState {
@@ -499,11 +519,15 @@ private class NativeViewBottomBarHost private constructor(
                 ?.text?.toString()?.trim()?.takeIf { it.isNotBlank() }
             ?: target.fallbackLabels.getOrElse(index) { "入口 ${index + 1}" }
         // MIUIX vectors do not need a native bitmap, icon reflection or whole-bar badge-id scan.
-        val icon = if (target.useMiuixIcons()) null else {
+        val icon = if (target.useMiuixIcons() || target.resolveTabIcons != null) null else {
             (invokeNoArg("getIcon") as? ImageView)
                 ?: findNativeTabIconView(this, 0, badgeViewIds())
         }
-        val rawIcons = if (target.useMiuixIcons()) null else iconSnapshotter.snapshot(this, icon, selected)
+        val rawIcons = when {
+            target.useMiuixIcons() -> null
+            target.resolveTabIcons != null -> target.resolveTabIcons.invoke(this, selected)
+            else -> iconSnapshotter.snapshot(this, icon, selected)
+        }
         val icons = if (target.trimNativeIconTransparentPadding && rawIcons != null) {
             trimmedIconCache[this]?.takeIf { it.source == rawIcons }?.trimmed
                 ?: rawIcons.trimTransparentPadding().also { trimmed ->
@@ -515,7 +539,7 @@ private class NativeViewBottomBarHost private constructor(
         return NativeViewTabState(
             nativeIndex = index,
             label = resolvedLabel,
-            badge = target.showBadges() && hasVisibleBadge(icon),
+            badge = target.showBadges() && (target.resolveTabBadge?.invoke(this) ?: hasVisibleBadge(icon)),
             icons = icons,
         )
     }
@@ -547,17 +571,23 @@ private class NativeViewBottomBarHost private constructor(
             target.onChromeReplacement(activity, true)
             ensureContentReservationRemoved()
             val contentInset = composeView.injectedNavigationContentInsetPx()
-            if (contentInset > 0 && contentBottomPadding?.apply(contentInset) == true) {
-                sampler.requestCaptureBurst()
+            if (applyContentPadding(contentInset)) {
+                sampler?.requestCaptureBurst()
             }
         } else if (replacingNativeChrome) {
             replacingNativeChrome = false
             contentBottomPadding?.dispose()
+            contentPaddingPolicy.invalidate()
             restoreContentReservation()
             windowImmersion.dispose()
             target.onChromeReplacement(activity, false)
         }
     }
+
+    private fun applyContentPadding(inset: Int): Boolean =
+        contentBottomPadding != null &&
+            contentPaddingPolicy.shouldApply(inset, target.refreshContentPaddingEverySync) &&
+            contentBottomPadding.apply(inset)
 
     private fun updateNativeBarSuppression(overlayVisible: Boolean) {
         val suppress = NativeBottomBarPolicy.shouldSuppressNative(
@@ -603,11 +633,11 @@ private class NativeViewBottomBarHost private constructor(
 
     private fun selectDestination(index: Int) {
         val tab = nativeTabViews().getOrNull(index) ?: return
-        if (index != state.selectedIndex) sampler.invalidateSamplingContext()
+        if (index != state.selectedIndex) sampler?.invalidateSamplingContext()
         if (!target.isDetachedAction(tab, index)) state = state.copy(selectedIndex = index)
         target.onNativeTabClick(tab)
         tab.post { syncNativeState(force = true) }
-        sampler.requestCaptureBurst()
+        sampler?.requestCaptureBurst()
     }
 
     private fun nativeTabViews(): List<View> = target.resolveTabViews?.invoke(nativeBottomBar)
@@ -634,7 +664,7 @@ private class NativeViewBottomBarHost private constructor(
         )
         gpuBackdrop?.setBounds(windowBounds)
         videoSampler?.setBounds(windowBounds)
-        sampler.setNavigationBounds(windowBounds)
+        sampler?.setNavigationBounds(windowBounds)
     }
 
     companion object {
@@ -646,7 +676,8 @@ private class NativeViewBottomBarHost private constructor(
                 val bar = (target.resolveBottomBar?.invoke(overlayParent)
                     ?: overlayParent.findDescendantByClassNames(target.bottomBarClassNames))
                     ?: return null
-                val contentHost = target.contentHostMethodName?.let(activity::invokeNoArg) as? View
+                val contentHost = target.resolveContentHost?.invoke(bar)
+                    ?: (target.contentHostMethodName?.let(activity::invokeNoArg) as? View)
                     ?: target.contentHostResourceName?.let { name ->
                         val id = activity.resources.getIdentifier(name, "id", activity.packageName)
                         (bar.parent as? View)?.findViewById<View>(id)
@@ -685,7 +716,7 @@ private fun NativeViewBottomBarContent(
     val backdrop = rememberLayerBackdrop()
     var nativeBackdropBounds by remember { mutableStateOf<ViewBackdropBounds?>(null) }
     val opticalBackdrop = if (gpuBackdrop?.geometry != null || backdropSnapshot != null) backdrop else null
-    val hiddenNavigationLift = state.navigationLiftDp.dp
+    val hiddenNavigationLift = hyperGlassifyHiddenNavigationLift()
     val navigationPadding = if (target.stableNavigationInset && state.navigationInsetPx > 0) {
         Modifier.padding(bottom = with(LocalDensity.current) { state.navigationInsetPx.toDp() })
     } else {
@@ -719,11 +750,12 @@ private fun NativeViewBottomBarContent(
     MaterialTheme(colorScheme = materialColors) {
         MiuixTheme(colors = miuixColors) {
             CompositionLocalProvider(
-                LocalAdvancedMaterialSpec provides AdvancedMaterialSpec(enabled = true),
+                LocalAdvancedMaterialSpec provides navigationGlassMaterial(),
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .navigationEdgeMask(enabled = target.bottomEdgeMask)
                         .then(navigationPadding)
                         .padding(
                             start = 16.dp,

@@ -2,20 +2,23 @@ package com.aritxonly.myhypermodifier
 
 /** One editor, with separate persisted recipes and JSON formats for each target surface. */
 internal enum class GlassParameterScope(val presetFormat: String) {
+    Unified("myhypermodifier-unified-glass"),
     HeadsUp("myhypermodifier-heads-up-glass"),
     ShadeCards("myhypermodifier-shade-card-glass");
 
     fun defaults(dark: Boolean): FloatArray = when (this) {
         HeadsUp -> if (dark) HeadsUpGlassParameters.darkDefault else HeadsUpGlassParameters.regularDefault
-        ShadeCards -> ShadeCardGlassPolicy.defaults()
+        Unified, ShadeCards -> ShadeCardGlassPolicy.defaults()
     }
 
     fun enabled(settings: ModifierSettings): Boolean = when (this) {
+        Unified -> settings.unifiedGlassEnabled && !settings.disableShadeGlassHooks
         HeadsUp -> settings.headsUpGlassParametersEnabled
         ShadeCards -> settings.shadeCardGlassParametersEnabled && !settings.disableShadeGlassHooks
     }
 
     fun serialized(settings: ModifierSettings, dark: Boolean): String = when (this) {
+        Unified -> settings.unifiedGlassParameters
         HeadsUp -> if (dark) settings.headsUpGlassDarkParameters else settings.headsUpGlassParameters
         ShadeCards -> settings.shadeCardGlassParameters
     }
@@ -24,6 +27,7 @@ internal enum class GlassParameterScope(val presetFormat: String) {
         HeadsUpGlassParameters.parseSerializedOrDefault(serialized(settings, dark), defaults(dark))
 
     fun setEnabled(settings: ModifierSettings, enabled: Boolean): ModifierSettings = when (this) {
+        Unified -> settings.copy(unifiedGlassEnabled = enabled)
         HeadsUp -> settings.copy(headsUpGlassParametersEnabled = enabled)
         ShadeCards -> settings.copy(shadeCardGlassParametersEnabled = enabled)
     }
@@ -31,6 +35,7 @@ internal enum class GlassParameterScope(val presetFormat: String) {
     fun setParameters(settings: ModifierSettings, dark: Boolean, values: FloatArray): ModifierSettings {
         val serialized = HeadsUpGlassParameters.serialize(values)
         return when (this) {
+            Unified -> settings.copy(unifiedGlassParameters = HeadsUpGlassParameters.serialize(UnifiedGlassPolicy.sanitize(values)))
             HeadsUp -> if (dark) settings.copy(headsUpGlassDarkParameters = serialized)
                 else settings.copy(headsUpGlassParameters = serialized)
             ShadeCards -> settings.copy(shadeCardGlassParameters = serialized)
@@ -39,12 +44,12 @@ internal enum class GlassParameterScope(val presetFormat: String) {
 
     fun moduleDefault(settings: ModifierSettings): ModifierSettings = when (this) {
         HeadsUp -> ModifierSettingsPresets.headsUpGlassModuleDefault(settings)
-        ShadeCards -> setEnabled(setParameters(settings, false, defaults(false)), true)
+        Unified, ShadeCards -> setEnabled(setParameters(settings, false, defaults(false)), true)
     }
 
     fun systemDefault(settings: ModifierSettings): ModifierSettings = when (this) {
         HeadsUp -> ModifierSettingsPresets.headsUpGlassSystemDefault(settings)
-        ShadeCards -> setEnabled(settings, false)
+        Unified, ShadeCards -> setEnabled(settings, false)
     }
 
     fun importPreset(settings: ModifierSettings, preset: HeadsUpGlassPresetJson.Preset): ModifierSettings {

@@ -21,6 +21,14 @@ final class MarketHooks {
     private MarketHooks() {
     }
 
+    private static Method lifecycleMethod(Class<?> type, String name) throws NoSuchMethodException {
+        for (Class<?> cursor = type; cursor != null; cursor = cursor.getSuperclass()) {
+            try { return cursor.getDeclaredMethod(name); }
+            catch (NoSuchMethodException ignored) { }
+        }
+        throw new NoSuchMethodException(name);
+    }
+
     static void install(XposedModule module, ClassLoader classLoader) {
         if (!INSTALLED.compareAndSet(false, true)) return;
         try {
@@ -36,6 +44,18 @@ final class MarketHooks {
                         Object target = chain.getThisObject();
                         if (target instanceof Activity) {
                             MarketFloatingNavigation.attach((Activity) target);
+                        }
+                        return result;
+                    });
+
+            Method onResume = lifecycleMethod(mainActivity, "onResume");
+            module.hook(onResume)
+                    .setId("market-floating-navigation-resume")
+                    .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        if (mainActivity.isInstance(chain.getThisObject())) {
+                            MarketFloatingNavigation.attach((Activity) chain.getThisObject());
                         }
                         return result;
                     });

@@ -34,10 +34,12 @@ class SettingsBackupCodecTest {
         assertEquals(partial, SettingsBackupCodec.decode(SettingsBackupCodec.encode(partial), values))
     }
 
-    @Test fun removedNotificationTintDoesNotBreakOlderBackupsOrReturnToTheSchema() {
-        val previous = values + mapOf("dynamic_island_notification_opacity_enabled" to true,
+    @Test fun restoredNotificationTintRoundTripsAndImportsLegacyValues() {
+        val restored = values + mapOf("dynamic_island_notification_opacity_enabled" to true,
             "dynamic_island_notification_opacity" to 65f)
-        assertEquals(values, SettingsBackupCodec.decode(SettingsBackupCodec.encode(previous), values))
+        assertEquals(restored, SettingsBackupCodec.decode(SettingsBackupCodec.encode(restored), restored))
+        assertEquals(false, ModifierSettings().dynamicIslandNotificationOpacityEnabled)
+        assertEquals(70f, ModifierSettings().dynamicIslandNotificationOpacity)
     }
 
     @Test fun rejectsOversizedFileBeforeParsing() {

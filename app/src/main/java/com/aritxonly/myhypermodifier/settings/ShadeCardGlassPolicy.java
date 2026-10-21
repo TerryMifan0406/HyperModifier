@@ -1,6 +1,6 @@
 package com.aritxonly.myhypermodifier;
 
-/** Shared reference recipe from notification_glass_params_normal (Sep 24 SystemUI build). */
+/** Shared notification_glass_params_normal recipe; verified against OS4.0.2.0.XPCCNXM. */
 final class ShadeCardGlassPolicy {
     static final int COUNT = 42;
     static final int MAX_GLASS_BLUR_RADIUS = 100;

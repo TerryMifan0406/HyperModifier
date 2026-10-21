@@ -273,7 +273,7 @@ internal class InjectedViewTreeOwner : LifecycleOwner, ViewModelStoreOwner, Save
 
 
 
-internal val INJECTED_NAVIGATION_SHADOW_TOP_PADDING = 24.dp
+internal val INJECTED_NAVIGATION_SHADOW_TOP_PADDING = 32.dp
 private const val PREVIOUS_INJECTED_NAVIGATION_TOP_PADDING_DP = 12f
 
 internal fun View.injectedNavigationContentInsetPx(): Int {

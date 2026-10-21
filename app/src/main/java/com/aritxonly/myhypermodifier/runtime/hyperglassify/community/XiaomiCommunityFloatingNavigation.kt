@@ -1,7 +1,6 @@
 package com.aritxonly.myhypermodifier
 
 import android.app.Activity
-import android.view.MotionEvent
 import androidx.compose.ui.graphics.vector.ImageVector
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.All
@@ -33,10 +32,12 @@ internal object XiaomiCommunityFloatingNavigation {
             reservationViewMethodNames = setOf("M0", "l1"),
             trimNativeIconTransparentPadding = true,
             nativeRefreshIntervalMs = 32L,
-            useHardwareBackdrop = true,
+            useNativeGpuBackdrop = true,
+            inTreeOverlay = true,
+            useHardwareBackdrop = false,
             allowSoftwareBackdrop = false,
             matchDisplayBackdropRefreshRate = true,
-            sampleBackdropOnSourceFrame = true,
+            sampleBackdropOnSourceFrame = false,
             pixelCopyRetryDelayMs = 32L,
         ),
     )
@@ -44,8 +45,6 @@ internal object XiaomiCommunityFloatingNavigation {
     @JvmStatic fun prepare(activity: Activity) = delegate.prepare(activity)
     @JvmStatic fun attach(activity: Activity) = delegate.attach(activity)
     @JvmStatic fun dispose(activity: Activity) = delegate.dispose(activity)
-    @JvmStatic fun onTouchEvent(activity: Activity, event: MotionEvent) =
-        delegate.onTouchEvent(activity, event)
 }
 
 private fun communityMiuixIcon(label: String, index: Int): ImageVector {

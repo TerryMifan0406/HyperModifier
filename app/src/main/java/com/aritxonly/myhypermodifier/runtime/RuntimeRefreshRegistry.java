@@ -174,6 +174,7 @@ final class RuntimeRefreshRegistry {
         HyperMusicCoverExtensions.refresh();
         GestureHandleHooks.refresh();
         StatusBarClockSecondsHooks.refresh();
+        StatusBarBatteryFrameHooks.refresh();
         StatusBarNetworkVisibilityHooks.refresh();
         StatusBarNetworkMarginsHooks.refresh();
         // Player Island is constructed before remote preferences are often available. Its main

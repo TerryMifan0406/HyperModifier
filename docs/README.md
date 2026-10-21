@@ -9,6 +9,7 @@
 - [1.4.2 历史更新日志](../RELEASE_NOTES_v1.4.2.md)
 - [1.4.1 历史更新日志](../RELEASE_NOTES_v1.4.1.md)
 - [1.4.0 历史更新日志](releases/RELEASE_NOTES_v1.4.0.md)
+- [支付宝经典模式柔光底栏与静态图标](investigations/ALIPAY_CLASSIC_FLOATING_NAVIGATION.md)
 - [抖音 40.7.0 柔光底栏与性能验证](investigations/DOUYIN_FLOATING_NAVIGATION.md)
 - [卡片柔光玻璃与共享模糊](investigations/SHADE_CARD_GLASS.md)
 - [密码/指纹切换研究](investigations/LOCKSCREEN_CREDENTIAL_HOOKS.md)
@@ -18,3 +19,10 @@
 研究记录中的 `reference/` 等路径均相对于项目根目录。
 
 SystemUI 及插件默认参考包现以 `OS4.0.2.0.XPCCNXM` 为基线，提取版本、哈希及已确认差异见 [4.0.2.0 基线](investigations/SYSTEMUI_4.0.2.0_BASELINE.md)。
+
+- [GPU 底栏与 Deadliner 最新材质迁移](investigations/GPU_FLOATING_NAVIGATION.md)
+
+- [三款应用窗口 GPU 采样第二轮](investigations/WINDOW_GPU_BACKDROP.md)
+
+- [底栏柔光玻璃参数调节](investigations/NAVIGATION_GLASS_EDITOR.md)
+- [Deadliner 最新材质与主 APP 底栏渐进背景](investigations/DEADLINER_GLASS_SHADOW_SYNC.md)

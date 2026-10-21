@@ -42,9 +42,13 @@ data class ModifierSettings(
     val shadeCardGlassParametersEnabled: Boolean = false,
     val disableShadeGlassHooks: Boolean = false,
     val shadeCardGlassParameters: String = HeadsUpGlassParameters.serialize(ShadeCardGlassPolicy.defaults()),
+    val unifiedGlassEnabled: Boolean = false,
+    val unifiedGlassParameters: String = HeadsUpGlassParameters.serialize(ShadeCardGlassPolicy.defaults()),
     val globalGlassBlurEnabled: Boolean = false,
     val dynamicIslandExpandedOpacity: Float = 30f,
     val dynamicIslandOpacityEnabled: Boolean = false,
+    val dynamicIslandNotificationOpacityEnabled: Boolean = false,
+    val dynamicIslandNotificationOpacity: Float = 70f,
     // Legacy storage/export fields; global Glass now uses only its enable switch and radius.
     val shadeCardBackgroundBlurPercent: Float = 100f,
     val shadeCardGlassBlurEnabled: Boolean = false,
@@ -89,6 +93,7 @@ data class ModifierSettings(
     val forceLockscreenClockColon: Boolean = false,
     val hideLockscreenClockLeadingZero: Boolean = false,
     val hideDesktopClockLeadingZero: Boolean = false,
+    val desktopSearch4x7Enabled: Boolean = false,
     val desktopStatusBarIconMode: Int = 0,
     val androidWidgetStackEnabled: Boolean = false,
     val androidWidgetGlassEnabled: Boolean = false,
@@ -117,6 +122,9 @@ data class ModifierSettings(
     val statusBarHideMobileActivity: Boolean = false,
     val statusBarHideWifiActivity: Boolean = false,
     val statusBarShowSeconds: Boolean = false,
+    val statusBarSolidBatteryFrame: Boolean = false,
+    val notificationClockShowSeconds: Boolean = false,
+    val statusBarHideClockLeadingZero: Boolean = false,
     val statusBarHideWifiStandard: Boolean = false,
     val statusBarMobileActivityOffsetX: Float = 0f,
     val statusBarMobileActivityOffsetY: Float = 0f,
@@ -130,6 +138,7 @@ data class ModifierSettings(
     val statusBarNetworkTypeSize: Float = 13.5f,
     val statusBarNetworkTypeBold: Boolean = true,
     val statusBarNetworkTypeOffset: Float = 0f,
+    val navigationGlassParameters: String = "",
     val hyperGlassifyHiddenNavigationLift: Float = ModuleDefaultValues.HYPER_GLASSIFY_HIDDEN_NAVIGATION_LIFT,
     val xiaomiHealthFloatingNavigationEnabled: Boolean = ModuleDefaultValues.XIAOMI_HEALTH_FLOATING_NAVIGATION_ENABLED,
     val xiaomiHealthMiuixIconsEnabled: Boolean = false,
@@ -149,6 +158,7 @@ data class ModifierSettings(
     val amapMiuixIconsEnabled: Boolean = false,
     val amapMonochromeIconsEnabled: Boolean = true,
     val amapHideLongPressVoiceTabEnabled: Boolean = ModuleDefaultValues.AMAP_HIDE_LONG_PRESS_VOICE_TAB_ENABLED,
+    val alipayFloatingNavigationEnabled: Boolean = ModuleDefaultValues.ALIPAY_FLOATING_NAVIGATION_ENABLED,
     val douyinFloatingNavigationEnabled: Boolean = ModuleDefaultValues.DOUYIN_FLOATING_NAVIGATION_ENABLED,
     val xiaomiCommunityFloatingNavigationEnabled: Boolean = ModuleDefaultValues.XIAOMI_COMMUNITY_FLOATING_NAVIGATION_ENABLED,
     val xiaomiCommunityMiuixIconsEnabled: Boolean = false,
@@ -266,6 +276,7 @@ object ModifierSettingsPresets {
         forceLockscreenClockColon = false,
         hideLockscreenClockLeadingZero = false,
         hideDesktopClockLeadingZero = false,
+        desktopSearch4x7Enabled = false,
         androidWidgetStackEnabled = false,
         androidWidgetGlassEnabled = false,
         androidWidgetClockGlassEnabled = false,
@@ -285,6 +296,9 @@ object ModifierSettingsPresets {
         statusBarHideMobileActivity = false,
         statusBarHideWifiActivity = false,
         statusBarShowSeconds = false,
+        statusBarSolidBatteryFrame = false,
+        notificationClockShowSeconds = false,
+        statusBarHideClockLeadingZero = false,
         statusBarHideWifiStandard = false,
         statusBarMobileActivityOffsetX = 0f,
         statusBarMobileActivityOffsetY = 0f,
@@ -312,6 +326,7 @@ object ModifierSettingsPresets {
         amapMiuixIconsEnabled = false,
         amapMonochromeIconsEnabled = false,
         amapHideLongPressVoiceTabEnabled = false,
+        alipayFloatingNavigationEnabled = false,
         douyinFloatingNavigationEnabled = false,
         xiaomiCommunityFloatingNavigationEnabled = false,
         xiaomiCommunityMiuixIconsEnabled = false,
@@ -366,8 +381,12 @@ object ModifierSettingsStore {
     private const val KEY_HEADS_UP_GLASS_DARK_PARAMETERS = "heads_up_glass_dark_parameters"
     private const val KEY_SHADE_CARD_GLASS_ENABLED = "shade_card_glass_parameters_enabled"
     private const val KEY_DISABLE_SHADE_GLASS_HOOKS = "disable_shade_glass_hooks"
+    private const val KEY_DYNAMIC_ISLAND_NOTIFICATION_OPACITY_ENABLED = "dynamic_island_notification_opacity_enabled"
+    private const val KEY_DYNAMIC_ISLAND_NOTIFICATION_OPACITY = "dynamic_island_notification_opacity"
     private const val KEY_DYNAMIC_ISLAND_OPACITY_ENABLED = "dynamic_island_opacity_enabled"
     private const val KEY_DYNAMIC_ISLAND_EXPANDED_OPACITY = "dynamic_island_expanded_opacity"
+    private const val KEY_UNIFIED_GLASS_ENABLED = "unified_glass_enabled"
+    private const val KEY_UNIFIED_GLASS_PARAMETERS = "unified_glass_parameters"
     private const val KEY_GLOBAL_GLASS_BLUR_ENABLED = "global_glass_blur_enabled"
     private const val KEY_SHADE_CARD_GLASS_PARAMETERS = "shade_card_glass_parameters"
     private const val KEY_SHADE_CARD_GLASS_DARK_PARAMETERS = "shade_card_glass_dark_parameters"
@@ -437,6 +456,7 @@ object ModifierSettingsStore {
     private const val KEY_HIDE_LOCKSCREEN_CLOCK_LEADING_ZERO = "hide_lockscreen_clock_leading_zero"
     private const val KEY_DESKTOP_STATUS_BAR_ICON_MODE = "desktop_status_bar_icon_mode"
     private const val KEY_HIDE_DESKTOP_CLOCK_LEADING_ZERO = "hide_desktop_clock_leading_zero"
+    private const val KEY_DESKTOP_SEARCH_4X7_ENABLED = "desktop_search_4x7_enabled"
     private const val KEY_DEADLINER_WIDGET_STACK = "deadliner_widget_stack_enabled"
     private const val KEY_WIDGET_GLASS_TARGETS = "android_widget_glass_rules_v2"
     private const val KEY_WIDGET_GLASS_STYLES = "android_widget_glass_styles"
@@ -461,6 +481,9 @@ object ModifierSettingsStore {
     private const val KEY_STATUS_BAR_HIDE_MOBILE_ACTIVITY = "status_bar_hide_mobile_activity"
     private const val KEY_STATUS_BAR_HIDE_WIFI_ACTIVITY = "status_bar_hide_wifi_activity"
     private const val KEY_STATUS_BAR_SHOW_SECONDS = "status_bar_show_seconds"
+    private const val KEY_STATUS_BAR_SOLID_BATTERY_FRAME = "status_bar_solid_battery_frame"
+    private const val KEY_NOTIFICATION_CLOCK_SHOW_SECONDS = "notification_clock_show_seconds"
+    private const val KEY_STATUS_BAR_HIDE_CLOCK_LEADING_ZERO = "status_bar_hide_clock_leading_zero"
     private const val KEY_STATUS_BAR_HIDE_WIFI_STANDARD = "status_bar_hide_wifi_standard"
     private const val KEY_STATUS_BAR_MOBILE_ACTIVITY_OFFSET_X = "status_bar_mobile_activity_offset_x"
     private const val KEY_STATUS_BAR_MOBILE_ACTIVITY_OFFSET_Y = "status_bar_mobile_activity_offset_y"
@@ -474,6 +497,7 @@ object ModifierSettingsStore {
     private const val KEY_STATUS_BAR_NETWORK_TYPE_SIZE = "status_bar_network_type_size"
     private const val KEY_STATUS_BAR_NETWORK_TYPE_BOLD = "status_bar_network_type_bold"
     private const val KEY_STATUS_BAR_NETWORK_TYPE_OFFSET = "status_bar_network_type_offset"
+    private const val KEY_NAVIGATION_GLASS_PARAMETERS = "navigation_glass_parameters"
     private const val KEY_HYPER_GLASSIFY_HIDDEN_NAVIGATION_LIFT =
         "hyper_glassify_hidden_navigation_lift"
     private const val KEY_XIAOMI_HEALTH_FLOATING_NAVIGATION =
@@ -497,6 +521,7 @@ object ModifierSettingsStore {
     private const val KEY_AMAP_MONOCHROME_ICONS = "amap_monochrome_icons_enabled"
     private const val KEY_AMAP_HIDE_LONG_PRESS_VOICE_TAB =
         "amap_hide_long_press_voice_tab_enabled"
+    private const val KEY_ALIPAY_FLOATING_NAVIGATION = "alipay_floating_navigation_enabled"
     private const val KEY_DOUYIN_FLOATING_NAVIGATION = "douyin_floating_navigation_enabled"
     private const val KEY_XIAOMI_COMMUNITY_FLOATING_NAVIGATION =
         "xiaomi_community_floating_navigation_enabled"
@@ -589,6 +614,10 @@ object ModifierSettingsStore {
             ),
             shadeCardGlassParametersEnabled = prefs.getBoolean(KEY_SHADE_CARD_GLASS_ENABLED, false),
             disableShadeGlassHooks = prefs.getBoolean(KEY_DISABLE_SHADE_GLASS_HOOKS, false),
+            unifiedGlassEnabled = prefs.getBoolean(KEY_UNIFIED_GLASS_ENABLED, false),
+            unifiedGlassParameters = HeadsUpGlassParameters.serialize(UnifiedGlassPolicy.sanitize(
+                HeadsUpGlassParameters.parseSerializedOrDefault(prefs.getString(KEY_UNIFIED_GLASS_PARAMETERS, null), ShadeCardGlassPolicy.defaults()),
+            )),
             globalGlassBlurEnabled = prefs.getBoolean(KEY_GLOBAL_GLASS_BLUR_ENABLED,
                 prefs.getBoolean(KEY_SHADE_CARD_GLASS_ENABLED, false)),
             shadeCardGlassParameters = HeadsUpGlassParameters.serialize(
@@ -600,6 +629,8 @@ object ModifierSettingsStore {
             shadeCardBackgroundBlurPercent = ShadeCardGlassPolicy.normalize(prefs.getFloat(KEY_SHADE_CARD_BACKGROUND_BLUR_PERCENT, 100f), 200f, 100f),
             shadeCardGlassBlurEnabled = prefs.getBoolean(KEY_SHADE_CARD_GLASS_BLUR_ENABLED, false),
             dynamicIslandOpacityEnabled = prefs.getBoolean(KEY_DYNAMIC_ISLAND_OPACITY_ENABLED, prefs.getBoolean(KEY_GLOBAL_GLASS_BLUR_ENABLED, prefs.getBoolean(KEY_SHADE_CARD_GLASS_ENABLED, false))),
+            dynamicIslandNotificationOpacityEnabled = prefs.getBoolean(KEY_DYNAMIC_ISLAND_NOTIFICATION_OPACITY_ENABLED, false),
+            dynamicIslandNotificationOpacity = ShadeCardGlassPolicy.normalize(prefs.getFloat(KEY_DYNAMIC_ISLAND_NOTIFICATION_OPACITY, 70f), 100f, 70f),
             dynamicIslandExpandedOpacity = ShadeCardGlassPolicy.normalize(prefs.getFloat(KEY_DYNAMIC_ISLAND_EXPANDED_OPACITY, 30f), 100f, 30f),
             shadeCardGlassBlurRadius = ShadeCardGlassPolicy.normalize(prefs.getFloat(KEY_SHADE_CARD_GLASS_BLUR_RADIUS, 20f), ShadeCardGlassPolicy.MAX_GLASS_BLUR_RADIUS.toFloat(), 20f),
             headsUpBackgroundBlurRadius = ShadeCardGlassPolicy.normalize(prefs.getFloat(
@@ -673,6 +704,7 @@ object ModifierSettingsStore {
             forceLockscreenClockColon = prefs.getBoolean(KEY_FORCE_LOCKSCREEN_CLOCK_COLON, false),
             hideLockscreenClockLeadingZero = prefs.getBoolean(KEY_HIDE_LOCKSCREEN_CLOCK_LEADING_ZERO, false),
             hideDesktopClockLeadingZero = prefs.getBoolean(KEY_HIDE_DESKTOP_CLOCK_LEADING_ZERO, false),
+            desktopSearch4x7Enabled = prefs.getBoolean(KEY_DESKTOP_SEARCH_4X7_ENABLED, false),
             desktopStatusBarIconMode = DesktopStatusBarPolicy.normalize(prefs.getInt(KEY_DESKTOP_STATUS_BAR_ICON_MODE, 0)),
             androidWidgetStackEnabled = prefs.getBoolean(KEY_DEADLINER_WIDGET_STACK, false),
             androidWidgetGlassEnabled = prefs.getBoolean(KEY_DEADLINER_WIDGET_GLASS, false),
@@ -722,6 +754,9 @@ object ModifierSettingsStore {
             statusBarHideMobileActivity = prefs.getBoolean(KEY_STATUS_BAR_HIDE_MOBILE_ACTIVITY, false),
             statusBarHideWifiActivity = prefs.getBoolean(KEY_STATUS_BAR_HIDE_WIFI_ACTIVITY, false),
             statusBarShowSeconds = prefs.getBoolean(KEY_STATUS_BAR_SHOW_SECONDS, false),
+            statusBarSolidBatteryFrame = prefs.getBoolean(KEY_STATUS_BAR_SOLID_BATTERY_FRAME, false),
+            notificationClockShowSeconds = prefs.getBoolean(KEY_NOTIFICATION_CLOCK_SHOW_SECONDS, false),
+            statusBarHideClockLeadingZero = prefs.getBoolean(KEY_STATUS_BAR_HIDE_CLOCK_LEADING_ZERO, false),
             statusBarHideWifiStandard = prefs.getBoolean(KEY_STATUS_BAR_HIDE_WIFI_STANDARD, false),
             statusBarMobileActivityOffsetX = prefs.getFloat(KEY_STATUS_BAR_MOBILE_ACTIVITY_OFFSET_X, 0f),
             statusBarMobileActivityOffsetY = prefs.getFloat(KEY_STATUS_BAR_MOBILE_ACTIVITY_OFFSET_Y, 0f),
@@ -735,6 +770,7 @@ object ModifierSettingsStore {
             statusBarNetworkTypeSize = prefs.getFloat(KEY_STATUS_BAR_NETWORK_TYPE_SIZE, 13.5f),
             statusBarNetworkTypeBold = prefs.getBoolean(KEY_STATUS_BAR_NETWORK_TYPE_BOLD, true),
             statusBarNetworkTypeOffset = prefs.getFloat(KEY_STATUS_BAR_NETWORK_TYPE_OFFSET, 0f),
+            navigationGlassParameters = prefs.getString(KEY_NAVIGATION_GLASS_PARAMETERS, "") ?: "",
             hyperGlassifyHiddenNavigationLift = prefs.getFloat(
                 KEY_HYPER_GLASSIFY_HIDDEN_NAVIGATION_LIFT,
                 ModuleDefaultValues.HYPER_GLASSIFY_HIDDEN_NAVIGATION_LIFT,
@@ -765,6 +801,7 @@ object ModifierSettingsStore {
                 KEY_AMAP_HIDE_LONG_PRESS_VOICE_TAB,
                 ModuleDefaultValues.AMAP_HIDE_LONG_PRESS_VOICE_TAB_ENABLED,
             ),
+            alipayFloatingNavigationEnabled = prefs.getBoolean(KEY_ALIPAY_FLOATING_NAVIGATION, ModuleDefaultValues.ALIPAY_FLOATING_NAVIGATION_ENABLED),
             douyinFloatingNavigationEnabled = prefs.getBoolean(KEY_DOUYIN_FLOATING_NAVIGATION, ModuleDefaultValues.DOUYIN_FLOATING_NAVIGATION_ENABLED),
             xiaomiCommunityFloatingNavigationEnabled = prefs.getBoolean(
                 KEY_XIAOMI_COMMUNITY_FLOATING_NAVIGATION,
@@ -877,7 +914,13 @@ object ModifierSettingsStore {
             )
             .putBoolean(KEY_SHADE_CARD_GLASS_ENABLED, value.shadeCardGlassParametersEnabled)
             .putBoolean(KEY_DISABLE_SHADE_GLASS_HOOKS, value.disableShadeGlassHooks)
+            .putBoolean(KEY_UNIFIED_GLASS_ENABLED, value.unifiedGlassEnabled)
+            .putString(KEY_UNIFIED_GLASS_PARAMETERS, HeadsUpGlassParameters.serialize(UnifiedGlassPolicy.sanitize(
+                HeadsUpGlassParameters.parseSerializedOrDefault(value.unifiedGlassParameters, ShadeCardGlassPolicy.defaults()),
+            )))
             .putBoolean(KEY_GLOBAL_GLASS_BLUR_ENABLED, value.globalGlassBlurEnabled)
+            .putBoolean(KEY_DYNAMIC_ISLAND_NOTIFICATION_OPACITY_ENABLED, value.dynamicIslandNotificationOpacityEnabled)
+            .putFloat(KEY_DYNAMIC_ISLAND_NOTIFICATION_OPACITY, ShadeCardGlassPolicy.normalize(value.dynamicIslandNotificationOpacity, 100f, 70f))
             .putBoolean(KEY_DYNAMIC_ISLAND_OPACITY_ENABLED, value.dynamicIslandOpacityEnabled)
             .putFloat(KEY_DYNAMIC_ISLAND_EXPANDED_OPACITY, ShadeCardGlassPolicy.normalize(value.dynamicIslandExpandedOpacity, 100f, 30f))
             .putString(KEY_SHADE_CARD_GLASS_PARAMETERS, HeadsUpGlassParameters.serialize(
@@ -966,6 +1009,7 @@ object ModifierSettingsStore {
             .putBoolean(KEY_HIDE_LOCKSCREEN_CLOCK_LEADING_ZERO, value.hideLockscreenClockLeadingZero)
             .putInt(KEY_DESKTOP_STATUS_BAR_ICON_MODE, DesktopStatusBarPolicy.normalize(value.desktopStatusBarIconMode))
             .putBoolean(KEY_HIDE_DESKTOP_CLOCK_LEADING_ZERO, value.hideDesktopClockLeadingZero)
+            .putBoolean(KEY_DESKTOP_SEARCH_4X7_ENABLED, value.desktopSearch4x7Enabled)
             .putBoolean(KEY_DEADLINER_WIDGET_STACK, value.androidWidgetStackEnabled)
             .putBoolean(KEY_DEADLINER_WIDGET_GLASS, value.androidWidgetGlassEnabled)
             .putBoolean(KEY_DEADLINER_CLOCK_GLASS, value.androidWidgetClockGlassEnabled)
@@ -1010,6 +1054,9 @@ object ModifierSettingsStore {
             .putBoolean(KEY_STATUS_BAR_HIDE_MOBILE_ACTIVITY, value.statusBarHideMobileActivity)
             .putBoolean(KEY_STATUS_BAR_HIDE_WIFI_ACTIVITY, value.statusBarHideWifiActivity)
             .putBoolean(KEY_STATUS_BAR_SHOW_SECONDS, value.statusBarShowSeconds)
+            .putBoolean(KEY_STATUS_BAR_SOLID_BATTERY_FRAME, value.statusBarSolidBatteryFrame)
+            .putBoolean(KEY_NOTIFICATION_CLOCK_SHOW_SECONDS, value.notificationClockShowSeconds)
+            .putBoolean(KEY_STATUS_BAR_HIDE_CLOCK_LEADING_ZERO, value.statusBarHideClockLeadingZero)
             .putBoolean(KEY_STATUS_BAR_HIDE_WIFI_STANDARD, value.statusBarHideWifiStandard)
             .putFloat(KEY_STATUS_BAR_MOBILE_ACTIVITY_OFFSET_X, value.statusBarMobileActivityOffsetX)
             .putFloat(KEY_STATUS_BAR_MOBILE_ACTIVITY_OFFSET_Y, value.statusBarMobileActivityOffsetY)
@@ -1023,6 +1070,7 @@ object ModifierSettingsStore {
             .putFloat(KEY_STATUS_BAR_NETWORK_TYPE_SIZE, value.statusBarNetworkTypeSize)
             .putBoolean(KEY_STATUS_BAR_NETWORK_TYPE_BOLD, value.statusBarNetworkTypeBold)
             .putFloat(KEY_STATUS_BAR_NETWORK_TYPE_OFFSET, value.statusBarNetworkTypeOffset)
+            .putString(KEY_NAVIGATION_GLASS_PARAMETERS, value.navigationGlassParameters)
             .putFloat(
                 KEY_HYPER_GLASSIFY_HIDDEN_NAVIGATION_LIFT,
                 value.hyperGlassifyHiddenNavigationLift.coerceIn(0f, 48f),
@@ -1075,6 +1123,7 @@ object ModifierSettingsStore {
             .putBoolean(KEY_BILIBILI_MALL_TAB_VISIBLE, value.bilibiliMallTabVisible)
             .putBoolean(KEY_BILIBILI_MINE_TAB_VISIBLE, value.bilibiliMineTabVisible)
             .putBoolean(KEY_BILIBILI_PUBLISH_BUTTON_VISIBLE, value.bilibiliPublishButtonVisible)
+            .putBoolean(KEY_ALIPAY_FLOATING_NAVIGATION, value.alipayFloatingNavigationEnabled)
             .putBoolean(KEY_DOUYIN_FLOATING_NAVIGATION, value.douyinFloatingNavigationEnabled)
             .putBoolean(KEY_SPOTIFY_FLOATING_NAVIGATION, value.spotifyFloatingNavigationEnabled)
             .putBoolean(KEY_SPOTIFY_FAVORITE_BUTTON, value.spotifyFavoriteButtonEnabled)
@@ -1268,7 +1317,11 @@ object ModifierSettingsStore {
         putString(KEY_HEADS_UP_GLASS_DARK_PARAMETERS, value.headsUpGlassDarkParameters)
         putBoolean(KEY_SHADE_CARD_GLASS_ENABLED, value.shadeCardGlassParametersEnabled)
         putBoolean(KEY_DISABLE_SHADE_GLASS_HOOKS, value.disableShadeGlassHooks)
+        putBoolean(KEY_UNIFIED_GLASS_ENABLED, value.unifiedGlassEnabled)
+        putString(KEY_UNIFIED_GLASS_PARAMETERS, value.unifiedGlassParameters)
         putBoolean(KEY_GLOBAL_GLASS_BLUR_ENABLED, value.globalGlassBlurEnabled)
+        putBoolean(KEY_DYNAMIC_ISLAND_NOTIFICATION_OPACITY_ENABLED, value.dynamicIslandNotificationOpacityEnabled)
+        putFloat(KEY_DYNAMIC_ISLAND_NOTIFICATION_OPACITY, ShadeCardGlassPolicy.normalize(value.dynamicIslandNotificationOpacity, 100f, 70f))
         putBoolean(KEY_DYNAMIC_ISLAND_OPACITY_ENABLED, value.dynamicIslandOpacityEnabled)
         putFloat(KEY_DYNAMIC_ISLAND_EXPANDED_OPACITY, ShadeCardGlassPolicy.normalize(value.dynamicIslandExpandedOpacity, 100f, 30f))
         putString(KEY_SHADE_CARD_GLASS_PARAMETERS, value.shadeCardGlassParameters)
@@ -1352,6 +1405,7 @@ object ModifierSettingsStore {
         putBoolean(KEY_HIDE_LOCKSCREEN_CLOCK_LEADING_ZERO, value.hideLockscreenClockLeadingZero)
         putInt(KEY_DESKTOP_STATUS_BAR_ICON_MODE, DesktopStatusBarPolicy.normalize(value.desktopStatusBarIconMode))
         putBoolean(KEY_HIDE_DESKTOP_CLOCK_LEADING_ZERO, value.hideDesktopClockLeadingZero)
+        putBoolean(KEY_DESKTOP_SEARCH_4X7_ENABLED, value.desktopSearch4x7Enabled)
         putBoolean(KEY_DEADLINER_WIDGET_STACK, value.androidWidgetStackEnabled)
         putBoolean(KEY_DEADLINER_WIDGET_GLASS, value.androidWidgetGlassEnabled)
         putBoolean(KEY_DEADLINER_CLOCK_GLASS, value.androidWidgetClockGlassEnabled)
@@ -1396,6 +1450,9 @@ object ModifierSettingsStore {
         putBoolean(KEY_STATUS_BAR_HIDE_MOBILE_ACTIVITY, value.statusBarHideMobileActivity)
         putBoolean(KEY_STATUS_BAR_HIDE_WIFI_ACTIVITY, value.statusBarHideWifiActivity)
         putBoolean(KEY_STATUS_BAR_SHOW_SECONDS, value.statusBarShowSeconds)
+        putBoolean(KEY_STATUS_BAR_SOLID_BATTERY_FRAME, value.statusBarSolidBatteryFrame)
+        putBoolean(KEY_NOTIFICATION_CLOCK_SHOW_SECONDS, value.notificationClockShowSeconds)
+        putBoolean(KEY_STATUS_BAR_HIDE_CLOCK_LEADING_ZERO, value.statusBarHideClockLeadingZero)
         putBoolean(KEY_STATUS_BAR_HIDE_WIFI_STANDARD, value.statusBarHideWifiStandard)
         putFloat(KEY_STATUS_BAR_MOBILE_ACTIVITY_OFFSET_X, value.statusBarMobileActivityOffsetX)
         putFloat(KEY_STATUS_BAR_MOBILE_ACTIVITY_OFFSET_Y, value.statusBarMobileActivityOffsetY)
@@ -1409,6 +1466,7 @@ object ModifierSettingsStore {
         putFloat(KEY_STATUS_BAR_NETWORK_TYPE_SIZE, value.statusBarNetworkTypeSize)
         putBoolean(KEY_STATUS_BAR_NETWORK_TYPE_BOLD, value.statusBarNetworkTypeBold)
         putFloat(KEY_STATUS_BAR_NETWORK_TYPE_OFFSET, value.statusBarNetworkTypeOffset)
+        putString(KEY_NAVIGATION_GLASS_PARAMETERS, value.navigationGlassParameters)
         putFloat(
             KEY_HYPER_GLASSIFY_HIDDEN_NAVIGATION_LIFT,
             value.hyperGlassifyHiddenNavigationLift.coerceIn(0f, 48f),
@@ -1460,6 +1518,7 @@ object ModifierSettingsStore {
         putBoolean(KEY_BILIBILI_MALL_TAB_VISIBLE, value.bilibiliMallTabVisible)
         putBoolean(KEY_BILIBILI_MINE_TAB_VISIBLE, value.bilibiliMineTabVisible)
         putBoolean(KEY_BILIBILI_PUBLISH_BUTTON_VISIBLE, value.bilibiliPublishButtonVisible)
+        putBoolean(KEY_ALIPAY_FLOATING_NAVIGATION, value.alipayFloatingNavigationEnabled)
         putBoolean(KEY_DOUYIN_FLOATING_NAVIGATION, value.douyinFloatingNavigationEnabled)
         putBoolean(KEY_SPOTIFY_FLOATING_NAVIGATION, value.spotifyFloatingNavigationEnabled)
         putBoolean(KEY_SPOTIFY_FAVORITE_BUTTON, value.spotifyFavoriteButtonEnabled)

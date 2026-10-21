@@ -1,6 +1,8 @@
 #include "clock_format.h"
 #include "widget_hooks.h"
 #include "widget_status_socket.h"
+#include "desktop_search.h"
+#include "native_install_control.h"
 
 #include <android/log.h>
 #include <atomic>
@@ -32,17 +34,29 @@ constexpr char TAG[] = "MHMDesktopClock";
 constexpr char ACTION[] = "com.android.systemui.fsgesture";
 constexpr char MARKER[] = "mhm_desktop_clock_control";
 constexpr char ENABLED[] = "mhm_desktop_clock_enabled";
-constexpr uintptr_t FORMAT_RVA = 0x3fcb7c;
-constexpr unsigned char BUILD_ID[] = {
-    0x00,0x02,0xd2,0xe1,0x66,0x15,0xeb,0xdb,0x6b,0x53,
-    0x7b,0x4b,0xf8,0xfe,0xde,0x44,0x17,0x4b,0xf8,0x1d};
-// Calendar::format profile for the MAML library pulled from this device.
-// Also validate exact code before hooking; an OS upgrade must not reuse an RVA.
-constexpr unsigned char ENTRY[] = {
-    0xfd,0x7b,0xba,0xa9,0x71,0x6d,0x06,0x94,
-    0xff,0xc3,0x0a,0xd1,0xe8,0x23,0x02,0x91,
-    0xf8,0x03,0x03,0xaa,0xf7,0x03,0x02,0xaa,
-    0xb0,0xd3,0x06,0x94,0xf3,0x03,0x01,0xaa};
+// Verified Calendar::format ABI profiles. Launcher version does not identify
+// this system library; select by its own build ID and validate executable code.
+struct CalendarProfile {
+    uintptr_t rva;
+    unsigned char buildId[20];
+    unsigned char entry[32];
+};
+constexpr CalendarProfile CALENDAR_PROFILES[] = {
+    {0x3fcb7c,
+     {0x00,0x02,0xd2,0xe1,0x66,0x15,0xeb,0xdb,0x6b,0x53,
+      0x7b,0x4b,0xf8,0xfe,0xde,0x44,0x17,0x4b,0xf8,0x1d},
+     {0xfd,0x7b,0xba,0xa9,0x71,0x6d,0x06,0x94,
+      0xff,0xc3,0x0a,0xd1,0xe8,0x23,0x02,0x91,
+      0xf8,0x03,0x03,0xaa,0xf7,0x03,0x02,0xaa,
+      0xb0,0xd3,0x06,0x94,0xf3,0x03,0x01,0xaa}},
+    {0x423b8c,
+     {0xdc,0x79,0x5c,0x18,0xe8,0xfe,0xe6,0x02,0x94,0xeb,
+      0xb8,0x04,0x0b,0xe9,0x2b,0xc9,0x4e,0xed,0x4c,0x05},
+     {0xfd,0x7b,0xba,0xa9,0x63,0x85,0x06,0x94,
+      0xff,0xc3,0x0a,0xd1,0xe8,0x23,0x02,0x91,
+      0xf8,0x03,0x03,0xaa,0xf7,0x03,0x02,0xaa,
+      0xba,0xec,0x06,0x94,0xf3,0x03,0x01,0xaa}},
+};
 constexpr char RECEIVER_SYMBOL[] =
     "_RNvMs3_NtNtCslLvADlVgqlk_26hyper_os_broadcast_private13dyn_"
     "broadcast23BroadcastReceiver_traitINtB5_20BroadcastReceiver_TOINtNtNtNt"
@@ -72,7 +86,8 @@ std::mutex installMutex;
 std::atomic<bool> enabled{false};
 std::atomic<unsigned> changedLogs{0};
 std::atomic<bool> workerStarted{false};
-bool profileRejected = false;
+bool bridgeAttempted = false, calendarAttempted = false;
+NativeLibraryNotifications libraryNotifications;
 int installWake = -1;
 std::atomic<bool> installRequested{false};
 
@@ -127,6 +142,12 @@ void receiverHook(void *receiver, void *context, void *intent) {
             bool previous = enabled.exchange(value);
             cacheConfig(value);
             if (previous != value) changedLogs.store(0);
+            bool search = false;
+            if (readBool(extras, "mhm_desktop_search_4x7", search) && configureDesktopSearch(search)) {
+                if (!installRequested.exchange(true) && installWake >= 0) {
+                    uint64_t wake = 1; (void)write(installWake, &wake, sizeof(wake));
+                }
+            }
             __android_log_print(ANDROID_LOG_INFO, TAG, "CONFIG accepted enabled=%d", value);
             bool stack = false, glass = false;
             if (readBool(extras, "mhm_android_widget_stack", stack)
@@ -156,12 +177,12 @@ int findImages(dl_phdr_info *info, size_t, void *opaque) {
     else if (std::strstr(name, "/libapp.so")) { images.dart = info->dlpi_addr; images.dartPath = name; }
     return 0;
 }
-bool matchingProfile(const Images &images) {
+bool matchingProfile(const Images &images, const CalendarProfile &profile) {
     bool buildMatches = false, executable = false;
     for (size_t i = 0; i < images.headerCount; ++i) {
         const auto &ph = images.headers[i];
         if (ph.p_type == PT_LOAD && (ph.p_flags & PF_X)
-                && FORMAT_RVA >= ph.p_vaddr && FORMAT_RVA + sizeof(ENTRY) <= ph.p_vaddr + ph.p_memsz)
+                && profile.rva >= ph.p_vaddr && profile.rva + sizeof(profile.entry) <= ph.p_vaddr + ph.p_memsz)
             executable = true;
         if (ph.p_type != PT_NOTE) continue;
         const auto *cursor = reinterpret_cast<const unsigned char *>(images.maml + ph.p_vaddr);
@@ -174,18 +195,19 @@ bool matchingProfile(const Images &images) {
             const auto *name = cursor + sizeof(*note);
             const auto *desc = name + nameSize;
             if (note->n_type == NT_GNU_BUILD_ID && note->n_namesz == 4
-                    && std::memcmp(name, "GNU", 4) == 0 && note->n_descsz == sizeof(BUILD_ID))
-                buildMatches = std::memcmp(desc, BUILD_ID, sizeof(BUILD_ID)) == 0;
+                    && std::memcmp(name, "GNU", 4) == 0 && note->n_descsz == sizeof(profile.buildId))
+                buildMatches = std::memcmp(desc, profile.buildId, sizeof(profile.buildId)) == 0;
             cursor = desc + descSize;
         }
     }
     return executable && buildMatches
-        && std::memcmp(reinterpret_cast<void *>(images.maml + FORMAT_RVA), ENTRY, sizeof(ENTRY)) == 0;
+        && std::memcmp(reinterpret_cast<void *>(images.maml + profile.rva), profile.entry, sizeof(profile.entry)) == 0;
 }
 void install() {
     if (!hook) return;
     std::unique_lock<std::mutex> guard(installMutex, std::try_to_lock);
     if (!guard.owns_lock()) return;
+    NativeInstallScope installing;
     Images images; dl_iterate_phdr(findImages, &images);
     if (images.launcherPath && !androidWidgetHooksSettled()) {
         void *launcher = dlopen(images.launcherPath, RTLD_NOW | RTLD_NOLOAD);
@@ -196,11 +218,17 @@ void install() {
     }
     if (images.dartPath && !androidWidgetPickerHooksSettled())
         installAndroidWidgetPickerHooks(images.dartPath, images.dart, hook, unhook);
+    installDesktopSearch(images.dartPath, images.dart, hook, unhook);
     int schemaStage = widget_status::schema.load();
     if (schemaStage == widget_status::Incompatible || schemaStage == widget_status::Failed)
         widget_status::bridge.store(schemaStage);
-    if (!originalReceiver && images.launcherPath && images.broadcastPath
+    if (!bridgeAttempted && images.launcherPath && images.broadcastPath
             && schemaStage == widget_status::Ready) {
+        // Publish the attempt before dlopen/hook can re-enter the load callback.
+        // Missing exports, unavailable handles and an occupied target are all
+        // terminal for this process; they must not trigger another backend call.
+        bridgeAttempted = true;
+        widget_status::bridge.store(widget_status::Failed);
         void *launcher = dlopen(images.launcherPath, RTLD_NOW | RTLD_NOLOAD);
         void *broadcast = dlopen(images.broadcastPath, RTLD_NOW | RTLD_NOLOAD);
         if (launcher && broadcast) {
@@ -209,24 +237,49 @@ void install() {
             getExtras = reinterpret_cast<GetExtras>(dlsym(launcher, "Intent_get_extras"));
             getBool = reinterpret_cast<GetBool>(dlsym(launcher, "Bundle_get_boolean"));
             void *target = dlsym(broadcast, RECEIVER_SYMBOL);
-            if (getAction && getSender && getExtras && getBool && target) {
+            if (getAction && getSender && getExtras && getBool && target && unhook) {
                 int result = hook(target, reinterpret_cast<void *>(receiverHook), &originalReceiver);
                 widget_status::bridge.store(result == 0 && originalReceiver ? widget_status::Ready : widget_status::Failed);
-                __android_log_print(ANDROID_LOG_INFO, TAG, "BRIDGE install result=%d ready=%d", result, originalReceiver != nullptr);
+                if (result == 0 && !originalReceiver) {
+                    int rollback = unhook(target);
+                    __android_log_print(ANDROID_LOG_WARN, TAG, "BRIDGE missing trampoline: rollback=%d", rollback);
+                }
+                __android_log_print(ANDROID_LOG_INFO, TAG, "BRIDGE install result=%d ready=%d", result,
+                    result == 0 && originalReceiver != nullptr);
+            } else {
+                if (!getAction || !getSender || !getExtras || !getBool || !target)
+                    widget_status::bridge.store(widget_status::Incompatible);
+                __android_log_write(ANDROID_LOG_WARN, TAG, "BRIDGE unavailable: missing exports or rollback API; not retrying");
             }
+        } else {
+            __android_log_write(ANDROID_LOG_WARN, TAG, "BRIDGE unavailable: Runtime handle lookup failed; not retrying");
         }
         if (launcher) dlclose(launcher);
         if (broadcast) dlclose(broadcast);
     }
-    if (images.maml && !mhm_original_calendar && !profileRejected) {
-        if (!matchingProfile(images)) {
-            profileRejected = true;
+    if (images.maml && !calendarAttempted) {
+        calendarAttempted = true;
+        const CalendarProfile *profile = nullptr;
+        for (const auto &candidate : CALENDAR_PROFILES) {
+            if (matchingProfile(images, candidate)) { profile = &candidate; break; }
+        }
+        if (!profile) {
             __android_log_write(ANDROID_LOG_WARN, TAG, "HOOK rejected: MAML build ID or Calendar ABI fingerprint mismatch");
             return;
         }
-        int result = hook(reinterpret_cast<void *>(images.maml + FORMAT_RVA),
+        if (!unhook) {
+            __android_log_write(ANDROID_LOG_WARN, TAG, "HOOK Calendar unavailable: no rollback API; not retrying");
+            return;
+        }
+        void *target = reinterpret_cast<void *>(images.maml + profile->rva);
+        int result = hook(target,
             reinterpret_cast<void *>(mhm_calendar_entry), &mhm_original_calendar);
-        __android_log_print(ANDROID_LOG_INFO, TAG, "HOOK Calendar::format result=%d ready=%d enabled=%d", result, mhm_original_calendar != nullptr, enabled.load());
+        if (result == 0 && !mhm_original_calendar) {
+            int rollback = unhook(target);
+            __android_log_print(ANDROID_LOG_WARN, TAG, "HOOK Calendar missing trampoline: rollback=%d", rollback);
+        }
+        __android_log_print(ANDROID_LOG_INFO, TAG, "HOOK Calendar::format result=%d ready=%d enabled=%d", result,
+            result == 0 && mhm_original_calendar != nullptr, enabled.load());
     }
 }
 void *worker(void *) {
@@ -246,9 +299,9 @@ void *worker(void *) {
         }
         {
             std::lock_guard<std::mutex> guard(installMutex);
-            settled = (originalReceiver || widget_status::schema.load() == widget_status::Incompatible
+            settled = (bridgeAttempted || widget_status::schema.load() == widget_status::Incompatible
                     || widget_status::schema.load() == widget_status::Failed)
-                && (mhm_original_calendar || profileRejected)
+                && calendarAttempted
                 && androidWidgetHooksSettled() && androidWidgetPickerHooksSettled();
         }
         now = milliseconds();
@@ -274,11 +327,7 @@ void *worker(void *) {
 void onLoaded(const char *name, void *) {
     // Loader callbacks may run on the main thread. Only signal the worker;
     // never fingerprint, scan, dlopen or install detours on that thread.
-    if (installWake < 0 || !name) return;
-    const char *file = std::strrchr(name, '/'); file = file ? file + 1 : name;
-    if (std::strcmp(file, "libapp_launcher.so") && std::strcmp(file, "libapp.so")
-            && std::strcmp(file, "librust_maml_sdk.so")
-            && std::strcmp(file, "libhyper_os_broadcast_private.dylib.so")) return;
+    if (installWake < 0 || NativeInstallScope::active() || !libraryNotifications.accept(name)) return;
     if (!installRequested.exchange(true)) { uint64_t value = 1; (void)write(installWake, &value, sizeof(value)); }
 }
 }
@@ -297,6 +346,7 @@ Loaded native_init(const NativeAPIEntries *entries) {
     unhook = entries->unhook_func;
     readCachedConfig();
     loadAndroidWidgetConfig();
+    loadDesktopSearchConfig();
     __android_log_print(ANDROID_LOG_INFO, TAG, "INIT launcher uid=%u api=%u", getuid(), entries->version);
     if (!workerStarted.exchange(true)) {
         installWake = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);

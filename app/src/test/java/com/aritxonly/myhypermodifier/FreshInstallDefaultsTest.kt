@@ -14,17 +14,25 @@ class FreshInstallDefaultsTest {
             assertFalse(settings.settingsHomeEntryEnabled)
             assertFalse(settings.gestureHandleEnabled)
             assertTrue(settings.xiaomiHealthFloatingNavigationEnabled)
-            assertTrue(settings.marketFloatingNavigationEnabled)
+            assertFalse(settings.marketFloatingNavigationEnabled)
             assertTrue(settings.miHomeFloatingNavigationEnabled)
             assertTrue(settings.amapFloatingNavigationEnabled)
             assertTrue(settings.amapHideLongPressVoiceTabEnabled)
+            assertTrue(settings.alipayFloatingNavigationEnabled)
             assertTrue(settings.xiaomiCommunityFloatingNavigationEnabled)
             assertTrue(settings.bilibiliFloatingNavigationEnabled)
             assertTrue(settings.spotifyFloatingNavigationEnabled)
             assertFalse(settings.superIslandWhitelistDisabled)
             assertFalse(settings.statusBarShowSeconds)
+            assertFalse(settings.statusBarSolidBatteryFrame)
+            assertFalse(settings.notificationClockShowSeconds)
+            assertFalse(settings.statusBarHideClockLeadingZero)
             assertFalse(settings.lowerLockscreenPasswordPage)
             assertFalse(settings.progressiveLockscreenClockAvoidance)
         }
+    }
+
+    @Test fun systemPresetRestoresTheNativeAlipayDock() {
+        assertFalse(ModifierSettingsPresets.systemDefault().alipayFloatingNavigationEnabled)
     }
 }

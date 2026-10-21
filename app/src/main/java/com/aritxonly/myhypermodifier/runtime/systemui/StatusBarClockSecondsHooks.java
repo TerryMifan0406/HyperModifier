@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
 
-/** One shared, non-waking ticker, active only for visible status-bar clocks. Main-thread state. */
+/** One shared, non-waking ticker, active only for visible status-bar and notification-header clocks. Main-thread state. */
 final class StatusBarClockSecondsHooks {
     private static final String SYSTEM_UI = "com.android.systemui";
     private static final AtomicBoolean INSTALLED = new AtomicBoolean();
@@ -36,7 +36,7 @@ final class StatusBarClockSecondsHooks {
     private static final WeakHashMap<TextView, Binding> CLOCKS = new WeakHashMap<>();
     private static Field mode, controller, is24, demo, amPmStyle;
     private static Method updateTime;
-    private static boolean queued, observing, screenOn, lastEnabled;
+    private static boolean queued, observing, screenOn, lastEnabled, lastHeaderEnabled, lastHideLeadingZero;
     private static Context application;
     private static final Runnable TICK = () -> {
         queued = false;
@@ -70,10 +70,11 @@ final class StatusBarClockSecondsHooks {
                     .intercept(chain -> {
                         Object result = chain.proceed();
                         Binding binding = CLOCKS.get(chain.getThisObject());
-                        if (binding != null && enabled()) {
+                        if (binding != null && binding.secondsEnabled()) {
                             binding.configure();
                             if (binding.render()) schedule();
                         }
+                        if (binding != null) binding.hideLeadingZero();
                         return result;
                     });
             module.hook(clock.getDeclaredMethod("onAttachedToWindow"))
@@ -82,13 +83,21 @@ final class StatusBarClockSecondsHooks {
                     .intercept(chain -> {
                         Object result = chain.proceed();
                         TextView view = (TextView) chain.getThisObject();
-                        // Resolve IDs at attach only; headers and large lockscreen clocks stay stock.
+                        // Resolve IDs at attach only; date-only and lockscreen clocks stay stock.
                         int clockId = view.getResources().getIdentifier("clock", "id", SYSTEM_UI);
-                        if (clockId != 0 && view.getId() == clockId && !CLOCKS.containsKey(view)) {
-                            Binding binding = new Binding(view);
+                        int bigId = view.getResources().getIdentifier("big_time", "id", SYSTEM_UI);
+                        int horizontalId = view.getResources().getIdentifier("horizontal_time", "id", SYSTEM_UI);
+                        boolean header = view.getParent() != null && view.getParent().getClass()
+                                .getName().equals(SYSTEM_UI + ".qs.MiuiNotificationHeaderView")
+                                && ((bigId != 0 && view.getId() == bigId)
+                                || (horizontalId != 0 && view.getId() == horizontalId));
+                        if (((clockId != 0 && view.getId() == clockId) || header)
+                                && !CLOCKS.containsKey(view)) {
+                            Binding binding = new Binding(view, header);
                             CLOCKS.put(view, binding);
                             view.getViewTreeObserver().addOnGlobalLayoutListener(binding);
                             ModuleSettings.ensureLoaded();
+                            binding.hideLeadingZero();
                             reconcile();
                         }
                         return result;
@@ -107,6 +116,7 @@ final class StatusBarClockSecondsHooks {
                         return result;
                     });
             HookDiagnostics.available(SYSTEM_UI, "状态栏显秒");
+            HookDiagnostics.available(SYSTEM_UI, "状态栏与通知中心时钟前导零/显秒");
         } catch (Throwable error) {
             HookDiagnostics.failure(SYSTEM_UI, "状态栏显秒", error);
         }
@@ -117,19 +127,37 @@ final class StatusBarClockSecondsHooks {
                 && ModuleSettings.statusBarShowSeconds;
     }
 
+    private static boolean headerEnabled() {
+        return ModuleSettings.moduleHooksEnabled && !ModuleSettings.systemUiCompatibilityMode
+                && ModuleSettings.notificationClockShowSeconds;
+    }
+
+    private static boolean hideLeadingZeroEnabled() {
+        return ModuleSettings.moduleHooksEnabled && !ModuleSettings.systemUiCompatibilityMode
+                && ModuleSettings.statusBarHideClockLeadingZero;
+    }
+
     /** Called by the existing settings loader; unrelated changes do not replay any clock. */
     static void refresh() {
         if (!INSTALLED.get() || !REFRESH_PENDING.compareAndSet(false, true)) return;
         MAIN.post(() -> {
             REFRESH_PENDING.set(false);
             boolean now = enabled();
-            if (now == lastEnabled) return;
+            boolean header = headerEnabled();
+            boolean hide = hideLeadingZeroEnabled();
+            if (now == lastEnabled && header == lastHeaderEnabled && hide == lastHideLeadingZero) return;
+            boolean statusChanged = now != lastEnabled;
+            boolean headerChanged = header != lastHeaderEnabled;
+            boolean hideChanged = hide != lastHideLeadingZero;
             lastEnabled = now;
+            lastHeaderEnabled = header;
+            lastHideLeadingZero = hide;
             for (Binding binding : CLOCKS.values()) {
+                if (!hideChanged && !(binding.header ? headerChanged : statusChanged)) continue;
                 TextView view = binding.view.get();
                 if (view != null) {
-                    if (now) binding.configure();
-                    else binding.restore(view);
+                    // Rebuild from the current system time for both enable and restore.
+                    binding.refreshStock(view);
                 }
             }
             reconcile();
@@ -139,8 +167,7 @@ final class StatusBarClockSecondsHooks {
     private static void reconcile() {
         MAIN.removeCallbacks(TICK);
         queued = false;
-        lastEnabled = enabled();
-        if (!lastEnabled || CLOCKS.isEmpty()) {
+        if ((!enabled() && !headerEnabled()) || CLOCKS.isEmpty()) {
             stopObservation();
             return;
         }
@@ -163,7 +190,7 @@ final class StatusBarClockSecondsHooks {
         }
         boolean active = false;
         for (Binding binding : CLOCKS.values()) {
-            if (binding.format == null) binding.configure();
+            if (binding.secondsEnabled() && binding.format == null) binding.configure();
             active |= binding.render();
         }
         if (active) schedule();
@@ -188,6 +215,8 @@ final class StatusBarClockSecondsHooks {
 
     private static final class Binding implements ViewTreeObserver.OnGlobalLayoutListener {
         final WeakReference<TextView> view;
+        final boolean header;
+        final int dateTime24Id, dateTime12Id;
         final Date date = new Date();
         final StringBuffer buffer = new StringBuffer(24);
         final FieldPosition position = new FieldPosition(0);
@@ -195,19 +224,36 @@ final class StatusBarClockSecondsHooks {
         Locale locale;
         TimeZone zone;
         String pattern;
-        boolean eligible, wasShown, changed;
+        boolean eligible, wasShown;
 
-        Binding(TextView view) { this.view = new WeakReference<>(view); }
+        Binding(TextView view, boolean header) {
+            this.view = new WeakReference<>(view);
+            this.header = header;
+            dateTime24Id = header ? view.getResources().getIdentifier(
+                    "status_bar_clock_date_time_format", "string", SYSTEM_UI) : 0;
+            dateTime12Id = header ? view.getResources().getIdentifier(
+                    "status_bar_clock_date_time_format_12", "string", SYSTEM_UI) : 0;
+        }
+
+        boolean secondsEnabled() { return header ? headerEnabled() : enabled(); }
 
         void configure() {
             TextView target = view.get();
             if (target == null) return;
             try {
-                eligible = mode.getInt(target) == 0;
+                int clockMode = mode.getInt(target);
+                eligible = clockMode == 0 || (header && clockMode == 2);
                 if (!eligible) return;
                 Object owner = controller.get(target);
                 String desired = StatusBarClockSecondsPolicy.pattern(
-                        is24.getBoolean(owner), amPmStyle.getInt(target) == 0);
+                        is24.getBoolean(owner), amPmStyle.getInt(target) == 0,
+                        hideLeadingZeroEnabled());
+                if (clockMode == 2) {
+                    int id = is24.getBoolean(owner) ? dateTime24Id : dateTime12Id;
+                    if (id == 0) { eligible = false; return; }
+                    desired = StatusBarClockSecondsPolicy.withSeconds(
+                            target.getResources().getString(id), hideLeadingZeroEnabled());
+                }
                 Locale nextLocale = target.getResources().getConfiguration().getLocales().get(0);
                 TimeZone nextZone = TimeZone.getDefault();
                 if (format == null || !desired.equals(pattern) || !nextLocale.equals(locale)
@@ -225,30 +271,48 @@ final class StatusBarClockSecondsHooks {
 
         boolean render() {
             TextView target = view.get();
-            if (target == null || !eligible || format == null) return false;
+            if (!secondsEnabled() || !screenOn || target == null || !eligible
+                    || format == null || !target.isAttachedToWindow() || !target.isShown()
+                    || target.getWindowVisibility() != View.VISIBLE) return false;
             boolean demoMode;
             try { demoMode = demo.getBoolean(controller.get(target)); }
             catch (ReflectiveOperationException | RuntimeException ignored) { return false; }
-            if (!StatusBarClockSecondsPolicy.shouldTick(enabled(), screenOn,
+            if (!StatusBarClockSecondsPolicy.shouldTick(secondsEnabled(), screenOn,
                     target.isAttachedToWindow(), target.isShown()
                             && target.getWindowVisibility() == View.VISIBLE, demoMode)) return false;
             date.setTime(System.currentTimeMillis());
             buffer.setLength(0);
             String text = format.format(date, buffer, position).toString();
             if (!TextUtils.equals(target.getText(), text)) target.setText(text);
-            changed = true;
             return true;
         }
 
-        void restore(TextView target) {
-            if (!changed) return;
-            changed = false;
+        void hideLeadingZero() {
+            if (!hideLeadingZeroEnabled()) return;
+            TextView target = view.get();
+            if (target == null) return;
+            CharSequence text = target.getText();
+            int zero = StatusBarClockSecondsPolicy.leadingHourZero(text);
+            if (zero < 0) return;
+            try {
+                Object owner = controller.get(target);
+                int clockMode = mode.getInt(target);
+                if ((clockMode != 0 && !(header && clockMode == 2)) || !is24.getBoolean(owner)
+                        || demo.getBoolean(owner)) return;
+                target.setText(zero == 0 ? text.subSequence(1, text.length())
+                        : TextUtils.concat(text.subSequence(0, zero), text.subSequence(zero + 1, text.length())));
+            } catch (ReflectiveOperationException | RuntimeException ignored) {
+                // Unknown clock variants retain the system text.
+            }
+        }
+
+        void refreshStock(TextView target) {
             try { updateTime.invoke(target); }
             catch (ReflectiveOperationException | RuntimeException ignored) { /* Keep stock hooks. */ }
         }
 
         @Override public void onGlobalLayout() {
-            if (!enabled()) return;
+            if (!secondsEnabled()) return;
             TextView target = view.get();
             boolean shown = target != null && target.isShown()
                     && target.getWindowVisibility() == View.VISIBLE;

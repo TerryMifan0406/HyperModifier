@@ -126,6 +126,14 @@ internal fun NotificationControlCenterSettingsPage(
             onClick = onOpenCardGlassSettings,
         )
     }
+    SettingsSection(topLabel = "通知中心时钟") {
+        SettingsSwitchItem(
+            "时间显示秒数",
+            "独立于状态栏显秒；隐藏小时前导零跟随状态栏设置",
+            settings.notificationClockShowSeconds,
+            { update(settings.copy(notificationClockShowSeconds = it)) },
+        )
+    }
     SettingsSection(topLabel = "通知中心") {
         SettingsSwitchItem("通知圆角", "", settings.notificationsEnabled, { update(settings.copy(notificationsEnabled = it)) })
         SettingsSliderItemWithLabel("圆角大小", settings.notificationRadius, 12f..48f, { update(settings.copy(notificationRadius = it)) }, steps = 17, enabled = settings.notificationsEnabled)
@@ -357,7 +365,7 @@ private fun HeadsUpGlassSliderList(
 }
 
 @Composable
-private fun HeadsUpGlassSliderItem(
+internal fun HeadsUpGlassSliderItem(
     index: Int,
     value: Float,
     enabled: Boolean,
@@ -413,7 +421,9 @@ internal fun HeadsUpGlassParameterDialog(
     var draft by remember(currentTarget, scope, scope.serialized(settings, currentTarget.dark)) {
         mutableStateOf(source[currentTarget.index].toString())
     }
-    val parsedValue = draft.trim().toFloatOrNull()?.takeIf { !it.isNaN() && !it.isInfinite() }
+    val parsedValue = draft.trim().toFloatOrNull()?.takeIf {
+        it.isFinite() && (scope != GlassParameterScope.Unified || it in definition.valueRange)
+    }
 
     DeadlinerMiuixDialog(
         show = true,
@@ -436,7 +446,7 @@ internal fun HeadsUpGlassParameterDialog(
             )
             if (parsedValue == null) {
                 Text(
-                    text = "请输入有效的有限数字。",
+                    text = if (scope == GlassParameterScope.Unified) "请输入 ${definition.valueRange.start} 至 ${definition.valueRange.endInclusive} 的数字。" else "请输入有效的有限数字。",
                     color = MiuixTheme.colorScheme.error,
                     style = MiuixTheme.textStyles.footnote1,
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
@@ -590,10 +600,10 @@ internal fun MarketSettingsPage(
     update: (ModifierSettings) -> Unit,
     onScroll: (Float) -> Unit,
 ) = SettingsScrollPage(padding, onScroll) {
-    SettingsSection(topLabel = "应用商店") {
+    SettingsSection(topLabel = "应用商店 · 已有官方底栏方案") {
         SettingsSwitchItem(
             "柔光玻璃悬浮底栏",
-            "",
+            "已有官方底栏方案，模块默认关闭；首次开启后返回应用商店或重启应用",
             settings.marketFloatingNavigationEnabled,
             { update(settings.copy(marketFloatingNavigationEnabled = it)) },
         )

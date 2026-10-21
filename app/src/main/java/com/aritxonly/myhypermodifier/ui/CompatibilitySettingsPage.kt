@@ -117,8 +117,10 @@ internal fun rememberHookDiagnostics(): List<HookDiagnostic> {
     var diagnostics by remember(context) { mutableStateOf(HookDiagnosticStore.events(context)) }
     DisposableEffect(context) {
         val prefs = context.getSharedPreferences(HookDiagnosticStore.PREFS, Context.MODE_PRIVATE)
-        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
-            diagnostics = HookDiagnosticStore.events(context)
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == null || key == "events" || key == "auto_clean") {
+                diagnostics = HookDiagnosticStore.events(context)
+            }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
         onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }

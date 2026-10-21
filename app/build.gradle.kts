@@ -74,6 +74,8 @@ android {
         }
     }
 
+    sourceSets.getByName("main").kotlin.srcDir(rootProject.file("third_party/miuix-glass/src/commonMain/kotlin"))
+
     buildFeatures {
         compose = true
         buildConfig = true

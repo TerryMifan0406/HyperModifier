@@ -112,3 +112,33 @@ com.miui.home；原生功能仍需 NDK 库、Modern Native 入口、桌面 scope
 在首次构建时待真机验证；随后用户安装并确认效果正常，已保存到 `6002d11`。
 本轮 ADB 日志缓冲区未保留该次验证的 Native 日志，效果确认来自用户反馈。
 升级系统导致 Build ID 变化需重新分析适配。
+
+## 2026-10-21 OS4.0.4.0 桌面小组件修复
+
+只读 ADB 从当前手机读取 `/system_ext/lib64/librust_maml_sdk.so`：
+
+- 系统：`OS4.0.4.0.XPCCNXM`。
+- 库 SHA-256：`82f65d035e75fad138c692e42753acbb9e9c1254c1fbf683c0ec7db22b1e5e63`。
+- GNU Build ID：`dc795c18e8fee60294ebb8040be92bc94eed4c05`。
+- `.gnu_debugdata` 的 `Calendar::format` 地址：`0x423b8c`。
+- `DateFormatter::get_text` 地址：`0x493344`；`0x4935a8`、`0x4935c0`、
+  `0x493720` 调用该函数。格式指针/长度仍为 x2/x3，输出/Calendar 仍为 x0/x1。
+
+旧实现仅接受原库的 Build ID、地址 `0x3fcb7c` 和入口指令，系统升级后会拒绝
+安装。现增加经分析的新库 ABI profile，并保留旧 profile；依据系统 MAML 库本身
+选择，不依据桌面版本号。未知库继续拒绝，避免把旧地址 Hook 到无关代码。
+每个 profile 同时验证 Build ID、可执行段与 32 字节入口。仍仅尝试安装一次，
+失败终止，保留此前的递归通知抑制和多模块占用保护。
+
+本机验证：`native-install-loop-test.py` 可选传入真实 ELF，重建 PT_LOAD 后执行
+生产匹配函数，确认本次真实库恰好匹配一个 profile；两套 profile 的模拟安装、
+指令损坏/非可执行段拒绝、失败终态、10,000 次重复安装和 80,000 次并发通知
+回归通过（ASan/UBSan）。格式转换覆盖开关关闭、HH/HH:mm/HH:mm:ss、12 小时制
+及日期/定宽格式保留。此修复仅改变后台一次性安装时的 profile 选择，时钟刷新
+热路径不增加扫描、分配、IPC 或磁盘操作。以上为静态与主机测试，未测帧率或耗电。
+
+签名 Release 构建及 `:app:test` 成功，381 项 JVM 测试通过（任务缓存有效）。
+APK `HyperModifier-v1.5.2-widget-leading-zero-fix.apk` 签名校验通过，SHA-256：
+`cf3a819927b03b7987e4a0551a0580a062d8b479edada4611566b3f5c3224aac`。
+已通过 `adb install -r` 安装成功。未通过 ADB 重启进程或改变设置；新进程实际
+Hook 和 0–9 点的视觉效果仍需用户手动重启后验证。

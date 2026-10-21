@@ -20,10 +20,11 @@ public final class ModuleScopePackage {
     public static final String AMAP = "com.autonavi.minimap";
     public static final String XIAOMI_COMMUNITY = "com.xiaomi.vipaccount";
     public static final String SPOTIFY = "com.spotify.music";
+    public static final String ALIPAY = "com.eg.android.AlipayGphone";
     public static final String DOUYIN = "com.ss.android.ugc.aweme";
     public static final String BILIBILI = "tv.danmaku.bili";
     public static final Set<String> PACKAGES = Set.of(INCALL_UI, VOICE_ASSIST, SETTINGS, SYSTEM_FRAMEWORK, SYSTEM_UI, PLUGIN, XMSF, MILINK, XIAOMI_HEALTH,
-            MARKET, MI_HOME, AMAP, XIAOMI_COMMUNITY, BILIBILI, SPOTIFY, DOUYIN, LAUNCHER, PERSONAL_ASSISTANT);
+            MARKET, MI_HOME, AMAP, XIAOMI_COMMUNITY, BILIBILI, SPOTIFY, DOUYIN, ALIPAY, LAUNCHER, PERSONAL_ASSISTANT);
 
     private ModuleScopePackage() {}
 }
