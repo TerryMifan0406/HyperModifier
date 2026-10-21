@@ -303,6 +303,13 @@ import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
             enabled = android.os.Build.VERSION.SDK_INT >= 36,
         )
         SettingsSwitchItem(
+            "时钟材质承载预览",
+            "需开启过渡诊断；开启后仅试一次：解锁回桌面，在原位置显示原生时钟副本 0.5 秒，不移动到桌面组件",
+            settings.clockMaterialPreviewEnabled,
+            { update(settings.copy(clockMaterialPreviewEnabled = it)) },
+            enabled = android.os.Build.VERSION.SDK_INT >= 36 && settings.clockTransitionProbeEnabled,
+        )
+        SettingsSwitchItem(
             "时钟渐进避让通知",
             "适用于 AllInOne 时钟，保留音乐封面模式",
             settings.progressiveLockscreenClockAvoidance,

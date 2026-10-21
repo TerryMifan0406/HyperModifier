@@ -23,7 +23,7 @@
 | 0 | 保存现有工作区 | 可回退的 Git 基线 | 完成 |
 | 1 | 只读取证、核对绘制/解锁/资源契约 | 明确实际 APK、入口、退出和未决条件 | 静态取证完成 |
 | 2 | 仅 SystemUI 的默认关闭诊断包 | 记录横向时钟边界及解锁事件顺序，不改画面 | v2 真机确认 |
-| 3 | 锁屏侧连续过渡原型 | 在确认窗口生命周期后，复用数字显示路径，验证独立横纵缩放和取消恢复 | 一次性字形准备已实现，显示接管未实现 |
+| 3 | 锁屏侧连续过渡原型 | 在确认窗口生命周期后，复用数字显示路径，验证独立横纵缩放和取消恢复 | 字形准备已真机确认；原生材质承载实验已本地实现，连续动画未实现 |
 | 4 | 对接桌面真实目标 | 获得实时数字边界、当前页与可见性；完成双时钟隐藏/接管交接 | 待最小接口分析 |
 | 5 | 回归与性能验证 | 开关恢复、打断、前导零、字体、页面/布局变化、多模块共存；同条件 Perfetto/FrameTimeline | 待原型 |
 
@@ -292,3 +292,83 @@ TimeView 的材质初始化与背景采样，再决定是否支持当前玻璃�
 
 下一关还需确认临时承载层生命周期、解锁目标确为桌面以及 MAML 数字的实际
 目标边界；目前未增加桌面 Hook。本轮未安装、重启、触摸或修改手机设置。
+
+## v4 原生玻璃材质独立承载实验
+
+新增独立开关「时钟材质承载预览」，默认关闭，且依赖过渡诊断开关。启用后只尝试
+一次；需再试时手动关闭再开启。它不是连续动画：只在解锁回桌面后，于保存的
+锁屏时钟位置显示副本 0.5 秒，用于验证新窗口里的玻璃采样和原生字形。
+不把测试副本移动到 MAML 位置，不宣称已经完成一镜到底。
+
+### 为何复用原生 TimeView
+
+当前匹配 SystemUI 中，TimeView.onDraw 自行应用字体轴、生成路径、设置玻璃
+Paint 效果、字形裁剪，并调用 MiuiBlurUtils.setMiGlass 将 glassData 绑定到 View。
+AllInOneBase 还通过 `setGlassEffectMethod(View,float[])` 初始化原生材质类型、
+View blur mode 与 surface color type。普通 Path/Bitmap 不能替代这些状态。
+
+实验因此通过缓存的原生 TimeView 构造器创建独立副本，复制相同的时间字符串、
+字体/大小/字重/宽高参数、冒号参数、Paint 与 glassData，并调用原生材质初始化。
+真正绘制继续走该类原有 onDraw。没有新增 onDraw Hook，也没有调用原 View.draw
+或把原 View 从系统容器移出，不共享可变 Paint/数组，不改原 View alpha/可见性。
+复制 Paint 可能保留其底层字体/Shader 资源，仅保留在有界实验会话内，不能把此
+机制当成长期缓存。
+
+### 时序与门控
+
+1. 首次显式开启时，在现有设置回调中解析并缓存材质/任务元数据；未开启不做
+   这批反射解析。缺少任意必要接口时报告 unavailable，不尝试纯色降级。
+2. GoingAway 只复制数值、Paint、数组、矩阵和矩形；只接受已识别的一对小时/
+   分钟实例及主显示。原 View 只保留弱引用，Context 仅保留 application context。
+   原生 View 构造、WindowContext 注册和 addView 都移到系统退出回调完成之后。
+3. 复用既有 RemoteTransition 观察点，在 Binder 线程只检查 TransitionInfo 数据。
+   要求 going-away flag `0x100`、opening/to-front mode 1/3、activityType HOME=2、
+   topActivity 为 com.miui.home、task user 与本进程用户匹配。元数据不明则跳过，
+   不同步查询 ActivityManager、不访问 View。当前门控保守地只支持 SystemUI
+   进程所在用户，不能据此宣称支持所有多用户切换。
+4. 原 ExitFinished 返回后仅排队一次 16ms 的显示尝试；原控件仍可见且累计 alpha
+   大于 0.01、旋转非 0、会话超过 1 秒或目标不是桌面，均放弃，不延迟系统完成。
+   此条件是保守防重影门控，不证明任何合成器帧已完全结束。
+5. 使用与显示绑定的 WindowContext 创建一个透明、硬件加速、不接收触摸/焦点的
+   SystemUI 内部窗口（TYPE_STATUS_BAR_SUB_PANEL=2017），不新增权限或 Binder 端点。
+   addView 被系统拒绝则记录并退出，不改系统安全策略或回退到其他窗口类型。
+6. 副本按源全局矩阵放置，扣除新窗口真实屏幕原点，并使用保存的可见矩形裁剪。
+   附加玻璃层/截图层为 0，新增逐帧动画驱动为 0；原生玻璃自身 GPU 成本仍存在。
+   新的透明窗口本身需要合成缓冲，不能声称无 GPU/内存成本。
+7. 仅活动会话有一次 1.5 秒准备 watchdog；显示成功后改为一次 500ms 移除任务。
+   取消、新锁屏过渡、配置变化或设置关闭也会清理。没有轮询/重试直到成功。
+   异步清理、显示按 candidate 身份匹配，防止旧任务干扰下一次会话。
+
+普通 JVM 测试只覆盖目标与显示门控、默认关闭和既有回归，未执行 Android 窗口、
+原生 Shader 或硬件渲染。成功提交原生 draw 也不证明材质视觉等效，须另做真机
+视觉对照。临时窗口和两个副本可能带来启动/绘制/合成成本，本轮只有结构审查，
+没有 CPU/分配、Perfetto、FrameTimeline 或功耗对照测量。
+
+### 额外只读框架核对
+
+从当前手机只读拉取 `/system/framework/framework.jar`，SHA-256：
+`bfe477943ca7c58ea151897b2498f705ec4e9470ae727b6aa7d18305d342f5b8`。
+DEX 确认以下成员存在且 public：TaskInfo.userId:I / getActivityType()I，
+TransitionInfo.getFlags()I / getChanges()List，Change.getMode()I /
+getTaskInfo()ActivityManager.RunningTaskInfo。它们虽未全部暴露在公开 SDK stub，
+但本实验缓存反射元数据，不按 Android/桌面版本号猜测是否存在。
+SystemUI smali 契约检查增至 44 项（原生构造器、字段与材质初始化入口）。
+
+### 手动验证与后续只读采集
+
+用户安装本地 v4 后手动重启系统界面，保留过渡诊断开关，并显式开启新的材质
+承载预览开关。手动锁屏解锁返回桌面一次。预期可见原锁屏位置的大时钟短暂
+出现后自行消失；不会移动到桌面组件。若门控未通过则可能完全不出现，不能
+据此认定玻璃不可用。只读 dumpsys 会保留 materialPreview 的 metadata/state、
+目标是否 home、shown/nativeDrawn 计数及 lastResult。视觉上需确认字体、材质、
+颜色、采样背景和位置；记录为未经验证，直到用户反馈或录屏可供核对。
+
+本轮手机仅执行 framework.jar 拉取；未安装、重启、触摸或修改设置。
+
+### 本地交付验证
+
+- `:app:assembleRelease :app:test` 成功；402 项 JVM 测试通过，0 失败。
+- SystemUI 静态契约检查 44 项通过；新增 Hook 为 0，仍复用 10 个诊断观察点，桌面 Hook 为 0。
+- Release APK v2 签名验证通过：`HyperModifier-v1.5.2-clock-material-preview-v4.apk`。
+- SHA-256：`f6d24d82480a362c6de1ff0104b2e90e1f839e2fdc452d22318b457d46d378c8`。
+- 以上属于构建、JVM 与静态验证；尚无本实验的真机窗口/材质视觉或性能测量。

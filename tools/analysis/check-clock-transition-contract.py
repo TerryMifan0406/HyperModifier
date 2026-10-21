@@ -17,10 +17,19 @@ contracts = {
                    'mColonView:Lcom/miui/clock/allInOne/TimeView;'],
     },
     'com/miui/clock/allInOne/TimeView': {
+        'methods': ['<init>(Landroid/content/Context;)V'],
         'fields': ['mTextPath:Landroid/graphics/Path;', 'mColonPath:Landroid/graphics/Path;',
                    'mMinuteOnlyPath:Landroid/graphics/Path;', 'mDrawTextX:F', 'mDrawTextY:F',
                    'mColonSplitIndex:I', 'mColonAlpha:F', 'fontAlpha:F', 'mColonAdvanceWidth:F',
-                   'mText:Ljava/lang/String;', 'isMiGlassEffectEnable:Z'],
+                   'mText:Ljava/lang/String;', 'isMiGlassEffectEnable:Z',
+                   'glassData:[F', 'textPaint:Landroid/graphics/Paint;', 'mFontStyle:I',
+                   'mTextColor:I', 'textSizePx:F', 'weight:F', 'width:F', 'height:F', 'size:I'],
+    },
+    'com/miui/clock/utils/MiuiBlurUtils': {
+        'methods': ['setGlassEffectMethod(Landroid/view/View;[F)V'],
+        'fields': [name + ':Ljava/lang/reflect/Method;' for name in [
+            'M_SET_MI_GLASS', 'M_SET_MI_GLASS_CLIP', 'M_SET_GLASS_EFFECT',
+            'M_SET_MI_VIEW_MATERIAL_TYPE', 'M_SET_MI_VIEW_BLUR_MODE', 'M_SET_MI_CUSTOM_SURFACE_COLOR_TYPE']],
     },
     'com/android/systemui/keyguard/KeyguardViewMediator': {
         'methods': [

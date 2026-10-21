@@ -33,7 +33,7 @@ final class LockscreenClockTransitionProbe {
     private static volatile String installState = "not-started", lastEvent = "none";
     private static volatile int hookCount, sourceCount;
     private static final AtomicInteger EVENTS = new AtomicInteger();
-    private static volatile boolean lastEnabled;
+    private static volatile boolean lastEnabled, lastMaterialEnabled;
     private static final AtomicBoolean SETTINGS_OBSERVER = new AtomicBoolean();
     private static Field doubleRow, editMode, timeGroup, hour, minute, colon;
     private static ClockGlyphSnapshot.Reader glyphReader;
@@ -97,6 +97,8 @@ final class LockscreenClockTransitionProbe {
                 String name = method.getName();
                 String event = method.getDeclaringClass().getSimpleName() + "." + name;
                 boolean prepare = method.getDeclaringClass() == injector && name.equals("keyguardGoingAway");
+                boolean remoteStart = method.getDeclaringClass() == remote && name.equals("startAnimation");
+                boolean exitFinished = name.equals("onKeyguardExitFinished");
                 boolean finish = name.equals("onKeyguardExitFinished") || name.equals("cancelKeyguardExitAnimation")
                         || name.equals("handleCancelKeyguardExitAnimation");
                 handles.add(module.hook(method).setId("clock-transition-probe-" + event)
@@ -105,12 +107,23 @@ final class LockscreenClockTransitionProbe {
                             // reload, task lookup, IPC or disk access in these callbacks.
                             if (ModuleSettings.moduleHooksEnabled && ModuleSettings.clockTransitionProbeEnabled) {
                                 EVENTS.incrementAndGet(); lastEvent = event;
-                                if (prepare && LINES.get() < MAX_LINES) capture();
+                                if (prepare && (LINES.get() < MAX_LINES || ClockMaterialPreview.needsPreparation())) capture();
+                                if (remoteStart) ClockMaterialPreview.remoteStart(chain.getArg(1));
                                 observe(event);
                             }
                             long generation = CAPTURE_GENERATION.get();
-                            try { return chain.proceed(); }
-                            finally { if (finish) releaseOnMain(name, generation); }
+                            Object materialToken = finish ? ClockMaterialPreview.token() : null;
+                            boolean completed = false;
+                            try {
+                                Object result = chain.proceed(); completed = true;
+                                return result;
+                            } finally {
+                                if (finish) {
+                                    if (completed && exitFinished) ClockMaterialPreview.finished(materialToken);
+                                    else ClockMaterialPreview.cancel(materialToken);
+                                    releaseOnMain(name, generation);
+                                }
+                            }
                         }));
                 module.deoptimize(method);
             }
@@ -120,6 +133,11 @@ final class LockscreenClockTransitionProbe {
             Log.i(TAG, "INSTALL ready hooks=" + hookCount);
             if (SETTINGS_OBSERVER.compareAndSet(false, true)) ModuleSettings.onChanged(() -> {
                 boolean active = ModuleSettings.moduleHooksEnabled && ModuleSettings.clockTransitionProbeEnabled;
+                boolean material = ClockMaterialPreview.enabled();
+                if (lastMaterialEnabled != material) {
+                    lastMaterialEnabled = material;
+                    ClockMaterialPreview.settingsChanged(loader);
+                }
                 if (lastEnabled == active) return;
                 lastEnabled = active;
                 // Called on the existing settings worker, only when this value changes.
@@ -150,6 +168,7 @@ final class LockscreenClockTransitionProbe {
                 + ", lastEvent=" + lastEvent + ", lastSources=" + sourceCount);
         out.println("    captureState=" + captureState + " lastCapture=" + lastCapture);
         for (String entry : HISTORY.snapshot()) out.println("    " + entry);
+        ClockMaterialPreview.dump(out);
     }
 
     private static Field field(Class<?> owner, String name) throws NoSuchFieldException {
@@ -203,11 +222,13 @@ final class LockscreenClockTransitionProbe {
         release("new-session");
         try {
             List<ClockGlyphSnapshot.Glyph> glyphs = ClockGlyphSnapshot.newBuffer();
+            List<View> previewSources = ClockMaterialPreview.needsPreparation() ? new ArrayList<>() : null;
             StringBuilder roles = new StringBuilder("sources");
             for (View clock : CLOCKS.keySet()) {
                 if (!clock.isShown() || !clock.isAttachedToWindow() || clock.getDisplay() == null
                         || clock.getDisplay().getDisplayId() != 0 || doubleRow.getBoolean(clock)
                         || editMode.getBoolean(clock)) continue;
+                if (previewSources != null) previewSources.add(clock);
                 String role = ClockGlyphCapturePolicy.role(clock.getClass().getName());
                 roles.append(' ').append(role);
                 glyphReader.append(glyphs, role, "hour", (View) hour.get(clock));
@@ -219,7 +240,10 @@ final class LockscreenClockTransitionProbe {
             lastCapture = snapshot.summary;
             prepared = snapshot.glyphs.isEmpty() ? null : snapshot;
             captureState = prepared == null ? "empty" : "captured-geometry-only";
-            if (prepared != null) MAIN.postDelayed(EXPIRE_CAPTURE, 5000L);
+            if (prepared != null) {
+                MAIN.postDelayed(EXPIRE_CAPTURE, 5000L);
+                if (previewSources != null) ClockMaterialPreview.prepare(previewSources, hour, minute, colon);
+            }
         } catch (ReflectiveOperationException | RuntimeException error) {
             lastCapture = error.getClass().getSimpleName(); release("capture-failed");
         }
