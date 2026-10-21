@@ -148,9 +148,6 @@ void installAndroidWidgetPickerHooks(const char *, uintptr_t, WidgetNativeHook, 
 }
 void installDesktopSearch(const char *, uintptr_t, WidgetNativeHook, WidgetNativeUnhook) { ++sim::searches; }
 bool configureDesktopSearch(bool value) { return value; }
-bool configureClockMvp(bool, unsigned) { return false; }
-bool clockMvpSettled() { return true; }
-void installClockMvp(const char *, uintptr_t, WidgetNativeHook, WidgetNativeUnhook) {}
 void loadDesktopSearchConfig() {}
 bool configureAndroidWidgets(bool, bool, void *) { return true; }
 void loadAndroidWidgetConfig() {}

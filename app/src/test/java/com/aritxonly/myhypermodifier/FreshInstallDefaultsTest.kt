@@ -29,7 +29,6 @@ class FreshInstallDefaultsTest {
             assertFalse(settings.statusBarHideClockLeadingZero)
             assertFalse(settings.lowerLockscreenPasswordPage)
             assertFalse(settings.progressiveLockscreenClockAvoidance)
-            assertFalse(settings.clockTransitionProbeEnabled)
         }
     }
 

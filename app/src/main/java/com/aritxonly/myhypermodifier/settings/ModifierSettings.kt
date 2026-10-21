@@ -92,7 +92,6 @@ data class ModifierSettings(
     val showLockscreenFingerprintIconOnAod: Boolean = false,
     val forceLockscreenClockColon: Boolean = false,
     val hideLockscreenClockLeadingZero: Boolean = false,
-    val clockTransitionProbeEnabled: Boolean = false,
     val hideDesktopClockLeadingZero: Boolean = false,
     val desktopSearch4x7Enabled: Boolean = false,
     val desktopStatusBarIconMode: Int = 0,
@@ -276,7 +275,6 @@ object ModifierSettingsPresets {
         showLockscreenFingerprintIconOnAod = false,
         forceLockscreenClockColon = false,
         hideLockscreenClockLeadingZero = false,
-        clockTransitionProbeEnabled = false,
         hideDesktopClockLeadingZero = false,
         desktopSearch4x7Enabled = false,
         androidWidgetStackEnabled = false,
@@ -456,7 +454,6 @@ object ModifierSettingsStore {
     private const val KEY_PHONE_IMAGE_TRANSFORMS = "about_phone_image_transforms"
     private const val KEY_FORCE_LOCKSCREEN_CLOCK_COLON = "force_lockscreen_clock_colon"
     private const val KEY_HIDE_LOCKSCREEN_CLOCK_LEADING_ZERO = "hide_lockscreen_clock_leading_zero"
-    private const val KEY_CLOCK_TRANSITION_PROBE_ENABLED = "clock_transition_probe_enabled"
     private const val KEY_DESKTOP_STATUS_BAR_ICON_MODE = "desktop_status_bar_icon_mode"
     private const val KEY_HIDE_DESKTOP_CLOCK_LEADING_ZERO = "hide_desktop_clock_leading_zero"
     private const val KEY_DESKTOP_SEARCH_4X7_ENABLED = "desktop_search_4x7_enabled"
@@ -706,7 +703,6 @@ object ModifierSettingsStore {
             aboutPhoneImageTransforms = prefs.getString(KEY_PHONE_IMAGE_TRANSFORMS, "{}") ?: "{}",
             forceLockscreenClockColon = prefs.getBoolean(KEY_FORCE_LOCKSCREEN_CLOCK_COLON, false),
             hideLockscreenClockLeadingZero = prefs.getBoolean(KEY_HIDE_LOCKSCREEN_CLOCK_LEADING_ZERO, false),
-            clockTransitionProbeEnabled = prefs.getBoolean(KEY_CLOCK_TRANSITION_PROBE_ENABLED, false),
             hideDesktopClockLeadingZero = prefs.getBoolean(KEY_HIDE_DESKTOP_CLOCK_LEADING_ZERO, false),
             desktopSearch4x7Enabled = prefs.getBoolean(KEY_DESKTOP_SEARCH_4X7_ENABLED, false),
             desktopStatusBarIconMode = DesktopStatusBarPolicy.normalize(prefs.getInt(KEY_DESKTOP_STATUS_BAR_ICON_MODE, 0)),
@@ -1011,7 +1007,6 @@ object ModifierSettingsStore {
             .putString(KEY_PHONE_IMAGE_TRANSFORMS, value.aboutPhoneImageTransforms)
             .putBoolean(KEY_FORCE_LOCKSCREEN_CLOCK_COLON, value.forceLockscreenClockColon)
             .putBoolean(KEY_HIDE_LOCKSCREEN_CLOCK_LEADING_ZERO, value.hideLockscreenClockLeadingZero)
-            .putBoolean(KEY_CLOCK_TRANSITION_PROBE_ENABLED, value.clockTransitionProbeEnabled)
             .putInt(KEY_DESKTOP_STATUS_BAR_ICON_MODE, DesktopStatusBarPolicy.normalize(value.desktopStatusBarIconMode))
             .putBoolean(KEY_HIDE_DESKTOP_CLOCK_LEADING_ZERO, value.hideDesktopClockLeadingZero)
             .putBoolean(KEY_DESKTOP_SEARCH_4X7_ENABLED, value.desktopSearch4x7Enabled)
@@ -1408,7 +1403,6 @@ object ModifierSettingsStore {
         putString(KEY_PHONE_IMAGE_TRANSFORMS, value.aboutPhoneImageTransforms)
         putBoolean(KEY_FORCE_LOCKSCREEN_CLOCK_COLON, value.forceLockscreenClockColon)
         putBoolean(KEY_HIDE_LOCKSCREEN_CLOCK_LEADING_ZERO, value.hideLockscreenClockLeadingZero)
-        putBoolean(KEY_CLOCK_TRANSITION_PROBE_ENABLED, value.clockTransitionProbeEnabled)
         putInt(KEY_DESKTOP_STATUS_BAR_ICON_MODE, DesktopStatusBarPolicy.normalize(value.desktopStatusBarIconMode))
         putBoolean(KEY_HIDE_DESKTOP_CLOCK_LEADING_ZERO, value.hideDesktopClockLeadingZero)
         putBoolean(KEY_DESKTOP_SEARCH_4X7_ENABLED, value.desktopSearch4x7Enabled)

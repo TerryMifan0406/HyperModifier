@@ -112,7 +112,6 @@ final class ModuleSettings {
     static volatile boolean aboutPhoneCardsEnabled = ModuleDefaultValues.ABOUT_PHONE_CARDS_ENABLED;
     static volatile boolean forceLockscreenClockColon = false;
     static volatile boolean hideLockscreenClockLeadingZero = false;
-    static volatile boolean clockTransitionProbeEnabled = false;
     static volatile int desktopStatusBarIconMode = 0;
     static volatile boolean androidWidgetGlassEnabled = false;
     static volatile String androidWidgetGlassStyles = "";
@@ -598,7 +597,6 @@ final class ModuleSettings {
             aboutPhoneCardsEnabled = values.getBoolean("about_phone_cards_enabled", ModuleDefaultValues.ABOUT_PHONE_CARDS_ENABLED);
             forceLockscreenClockColon = values.getBoolean("force_lockscreen_clock_colon", false);
             hideLockscreenClockLeadingZero = values.getBoolean("hide_lockscreen_clock_leading_zero", false);
-            clockTransitionProbeEnabled = values.getBoolean("clock_transition_probe_enabled", false);
             desktopStatusBarIconMode = DesktopStatusBarPolicy.normalize(values.getInt("desktop_status_bar_icon_mode", 0));
             androidWidgetGlassEnabled = values.getBoolean("deadliner_widget_glass_enabled", false);
             androidWidgetGlassTargets = values.getString(AndroidWidgetGlassPolicy.KEY, AndroidWidgetGlassPolicy.DEFAULT_TARGETS);
