@@ -161,3 +161,49 @@ AllInOne style 1/2/3 有显式分支，其余情况使用资源回退，不能�
 通过，15 项本地签名契约通过。APK SHA-256：
 `c0205dfed579793b58cdc75510aaf962020a90f45faa6b80ac51cdea6358deed`。
 新增低频元数据/计数审查完成；未做真机帧率/功耗测量，未验证修正版运行时。
+
+## 16:22 重启后的 v2 真机验证与 16:27 实时采集
+
+只读 SystemUI dump 确认 `state=installed, hooks=10, moduleEnabled=true,
+probeEnabled=true, events=29, lines=29, lastSources=2`。首版/旧记录的空 logcat
+不能再作为“Hook 未执行”的证据。设备 main/system 环形缓冲均只有 64 KiB；
+随后启动主机侧限时 logcat 流，用户自行锁屏/解锁，成功捕获下列事件。
+不修改手机日志大小、过滤配置、设置或进程。
+
+以 16:27:05 的一次完整回调链为例（相对第一条的 uptime 差值）：
+
+| 相对时间 | 回调 | 线程与时钟状态 |
+| --- | --- | --- |
+| 0 ms | Injector.keyguardGoingAway | 主线程，2 个 horizontal=true、shown=true 实例 |
+| +12 ms | KeyguardService$1.startAnimation | 非主线程，未读取 View |
+| +13 ms | Mediator.startKeyguardExitAnimation | 非主线程，未读取 View |
+| +22 ms | Mediator.handleStartKeyguardExitAnimationInner | 主线程，实例仍 shown=true |
+| +74 ms | Injector.keyguardUnlockHide | 主线程，实例仍 shown=true |
+| +74 ms | Mediator.onKeyguardExitFinished | 主线程，实例仍 shown=true |
+
+另两次回调链出现不同状态：
+
+- 16:27:08：GoingAway 时 shown=true，+66 ms 的 inner 已 shown=false，
+  +322 ms ExitFinished 时仍为 false。
+- 16:27:10：GoingAway 时 shown=true，+70 ms 的 inner 已 shown=false，
+  +338 ms ExitFinished 时仍为 false。
+
+因此原型必须在 GoingAway 时、系统改变可见性前准备显示状态；不能依赖 inner
+时原时钟仍可见，也不能将这些时间差当成完整视觉动画持续时间。新日志同时证实
+原有 mediator start/inner/exit 观察点能命中，不能将之前无日志归因于它们必然失效。
+`KeyguardService$1.startAnimation` 也在解锁链以外多次出现，不能单独用它启动时钟
+过渡，需要核对 transition 类型、目标 home task 和会话取消/结束。
+
+两个候选实例的全局可见矩形重合（例如 `[61,132,1159,1299]`），但子项不同：
+一个 hour=null、minute 可见；另一个 hour 可见、minute 不可见。静态存在
+`AllInOneHourClock`、`AllInOneMinuteClock` 与 secondary controller，当前日志没有
+具体类名/实例角色，所以不能判定这是两套重复完整时钟，更不能任意丢弃一个。
+这也说明现有 View 矩形不能用作小时/分钟的字形边界。
+
+下一步锁屏侧实现准备：在一次 GoingAway 内解析候选的具体类型和角色、
+通过 `TimeView.getTextBoundsWithPosition()` 配合完整父变换取得字形边界，
+验证是否需要组合小时/分钟两路。缓存方法在安装阶段完成；不新增 onDraw Hook，
+不在 Binder 线程读取 View，不改变系统认证或退出完成时机。
+桌面真实数字目标和定向隐藏仍未解决，动画接管尚未实现。
+
+本轮全部为只读取证与静态分析；无 APK 安装、重启、触摸或设置更改。
