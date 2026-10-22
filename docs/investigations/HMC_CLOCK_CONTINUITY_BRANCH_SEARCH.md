@@ -243,3 +243,79 @@ X 轴收窄当作用户要求的原生字体轴调整。这里只做静态审查
 - [zen 的 ClockCollapse](https://github.com/zyl6932/HyperMusicCover/blob/8e1058690bd4493dc957d29edf621fe4a9090eb5/app/src/main/java/com/os4/musiccover/ClockCollapse.java#L1576)
 - [zen 的 Main.applyY](https://github.com/zyl6932/HyperMusicCover/blob/8e1058690bd4493dc957d29edf621fe4a9090eb5/app/src/main/java/com/os4/musiccover/Main.java#L3161)
 - [zen 的解锁收尾](https://github.com/zyl6932/HyperMusicCover/blob/8e1058690bd4493dc957d29edf621fe4a9090eb5/app/src/main/java/com/os4/musiccover/Main.java#L3074)
+
+## 再复查与留档对照：先解决时钟独立接续
+
+2026-10-22 再次只读获取作者全部公开分支：仍为上述 8 个，两个 ColorOS 分支
+HEAD 未变。再次比较 ClockCollapse、LockHold、Main、ImmersiveHost，差异仍
+只有后两文件的高德 Probe/场景注册，共 11 行。沿两个分支历史搜索解锁事件、
+going-away 和 onUnlocked，命中的 12 个提交属于封面、地图、灵动岛、通知等
+路径，未定位到能确认对应演示的时钟到桌面实现。这只描述已检查的公开证据，
+不推断作者未公开或已删除的分支不存在。
+
+用户指出录屏中小组件时钟的入场与图标不是同一层。将此作为下一轮方案的核心：
+**时钟有独立的动画状态和交接时机，桌面图标照常入场。** 录屏支持独立轨迹，
+但不能据此辨认它是 Flutter 绘制节点、RenderNode、独立窗口还是独立
+SurfaceControl。后续不把“逻辑动画独立”直接写成“已经找到独立合成层”。
+
+### 归档代码确认的缺口
+
+对照 `codex/archive-clock-transition-mvp-v10`（eb7ee93）实际实现：
+
+- v9/v10 的桌面资格 Hook 只跳过目标时钟的入场准备和播放，没有隐藏原桌面
+  时间字形。副本在移动时，终点原字形仍可能可见；末端还额外淡出 120ms。
+  因此“关闭时钟甩入”不等于完成一镜到底的目标接管。
+- v8 的副本首个可见帧提交后才隐藏锁屏源；源仍受原父链的退出透明度影响。
+  v10 现场记录 activation-alpha=0.344、handoff-delay=34ms，说明接管点可能
+  已在淡出中段。两次 Window 提交没有原子性保证，不能用透明预备窗口宣称
+  彻底消除了先暗后亮或显示空隙。
+- v10 在候选解锁开始后准备 17 个字体布局采样点，未准备好时副本停留起点。
+  这可能让独立轨迹晚于图标动画启动，仍需设备时序确认。
+- 字体形变只覆盖 wdth/HGHT、字号和排字位置，保留原 weight 和 colonAlpha；
+  终点来自校准矩形与源字体测量，没有读取桌面端实际 Typeface/字重。
+
+这些是实现边界，并非已用对照实验确认的全部视觉问题根因。
+
+### 两端字体不能只凭文件名或矩形等同
+
+基线 `OS4.0.2.0` 的 `com/miui/clock/utils/FontUtils.getAllInOneFont` 从
+`/product/fonts/` 加载 AllInOne 字体（例如 MiSansRCF.ttf），不是直接读取
+SystemUI assets 中同名文件。TimeView 使用 wght/wdth/HGHT 覆写。
+
+已拉取的小组件资源 40130 中，center_classic_plus 用 `96 * scale` 字号、
+`font_path_style_plus` 和 `lock_font_weight`；字重默认 420，部分模板可从
+clockWeight 读取。其 zip 内六个字体的 fvar 表均只有 wght（150..700，默认
+330），没有 wdth/HGHT。尚未取得这次系统实际 `/product/fonts` 文件的轴表，
+不能认定小组件字体与锁屏字体是同一个三轴模型，也不能只按同名推断相同字形。
+目标字形是否能通过原生轴精确达到，需先验证实际字体实例和文字的墨迹边界。
+
+### 新 MVP 的验证顺序与交付边界
+
+1. **先做时钟可见性接续。** 维持锁屏端起点亮度，在其公共退出父层影响前
+   建立可持续显示的承载路径；过渡中只保留一份可见时间。目标 MAML 时间在
+   自身位置等待接手，禁止其随图标甩入。日期/天气等其他内容单独确认，不默认
+   隐藏整个小组件。只有“源可交接、返回 HOME、第一页、目标已就绪”同时成立
+   才接管；失败时整段保留系统动画，避免只有一侧被隐藏。
+2. **再校准终点和同帧接手。** 先让静态终点的字形、冒号、基线、颜色、亮度
+   与真实小组件吻合，再实现源→终点的连续轨迹。目标接手应绑定渲染就绪和
+   本次会话完成，不能再靠固定延迟后移除副本；分别提交的跨进程操作仍需逐帧
+   验证。不用两份半透明文字直接叠加来假定亮度恒定。
+3. **最后接入字形形变。** 从真实两端参数决定 weight、wdth、HGHT、字号及
+   colonAlpha；位置和整体大小仅等比变化，不用硬拉伸凑矩形。提前按字体、
+   尺寸/布局变化准备有限缓存，不在解锁开始后首次求解，也不常驻轮询。
+
+保持原来的横排、第一页、当前经典时钟范围。优先在 SystemUI 管理过渡生命
+周期；桌面若没有现成的目标与可见性接口，允许最小的目标协作，不能为了
+“零桌面 Hook”放弃第一页判断或留下双时钟。当前 Flutter `_UnlockWidgetState`
+有逐项资格判断及 alpha/scale/translation 状态；这能作为单独排除时钟入场的
+入口依据，不证明时钟已有可独立重挂父节点的 Surface。是否能只控制 MAML
+时间字形而保留整个小组件的其他内容，需要继续沿原生绘制身份核对。
+
+保留独立安装扩展包的交付方向，不恢复旧实验到默认生产路径；不把上游整套
+Probe 或旧版 10+3 个 Hook 无差别搬回。动画帧禁止同步 IPC、反射查找、日志、
+字形搜索和无界分配；目标信息在状态变化时刷新，清理时恢复原值并处理取消、
+重新锁屏、页面切换和目标消失。读屏、文件/字体解析和参数求解不进入主线程
+动画回调。
+
+本轮仅静态代码、二进制留档和字体资源检查；未改运行时代码、未安装或操作
+手机。没有 FrameTimeline/Perfetto/CPU/分配与功耗对照，不声称视觉或性能改善。
