@@ -136,3 +136,45 @@ clockHeld 时调用 `ClockCollapse.toAod()`；其他该广播收尾分支调用
 四个较活跃 fork 的 `clock transition` 提交搜索无命中。
 公开可读范围内仍未定位视频对应的实现。需要取得该演示对应的源码提交、
 测试 APK 或其他实际实现线索，才有依据继续制作可用扩展；不把未定位改写为不存在。
+
+## 无测试 APK 后的构建记录补查与 10 月 15 日线索
+
+用户没有演示版 APK，因此没有继续要求用户找文件。通过只读 `gh api` 读取了
+作者仓库全部 396 条公开 Actions 记录（4 页），覆盖 UTC 2026-09-08 19:49:39
+至 2026-10-21 20:58:41；本地记录含 299 个不同 head_sha。
+与当前公开 Git refs 的可达提交对比后，有 31 个构建 head 不可达；逐个读取了
+这些 head 的真实 commit message、文件列表及可用 patch，而非只按 Actions 的
+PR 标题判断。候选分别是 Enhanced 的封面/通知修改、AOD 尺寸、歌词/材质及
+claude 分支的探针/SDK 修复，未得到锁屏 → 桌面目标的正面证据。
+这仍不能排除未运行 Actions、未推送或不在构建 head 上的其他历史代码。
+
+用户进一步指出 Live 图日期是 10 月 15 日。将其作为优先级线索，把公开提交/
+构建重点缩到北京时间 10 月 14—15 日。画面日期可能受系统时间或演示设置影响，
+因此不是证明源码版本的唯一依据。
+
+已自行定位两个仍公开的 Nightly，不依赖用户提供测试包：
+
+| 产物 | 源提交 | 关联构建 |
+| --- | --- | --- |
+| nightly-20261014 / `HyperMusicCover-nightly-20261014-9df240d.apk` | `9df240d41130c23b2cad1980c2bf6d209b22b172` | Actions `38637342750`，北京时间 10-15 05:04 启动 |
+| nightly-20261015 / `HyperMusicCover-nightly-20261015-375d1a6.apk` | `375d1a607dfc741d052c874268db3c1cadb7b6c6` | Actions `38803625079`，北京时间 10-16 04:38 启动 |
+
+注意：Nightly 标签日期、GitHub Release created_at 和 Actions 实际启动时间并不
+完全相同，不能只用标签日期或 Release 创建时间当作 APK 编译/演示时间。
+已读取 release 元数据（各 APK 约 11.2 MB），没有下载或安装上述 APK。
+
+若画面 10-15 10:08 反映实际录制时间，前一份 Nightly 是更直接的公开候选。
+但核对 `9df240d` 对应源码，Main:1673—1680 在 SCREEN_OFF 时进 AOD、其他该
+receiver 收尾调用 ClockCollapse.release(a)，注册了 ACTION_USER_PRESENT；
+ClockCollapse:657—658 的 release 直接 releaseNow。其 Phase 仍只有
+OFF/ENTER/ON/EXIT/AOD，未得到桌面目标交接的实现证据。因此不能把这个 Nightly
+当成视频功能版，也不能仅因日期接近就打包“移植版”。
+
+公开对照：
+- [全部 Actions](https://github.com/zyl6932/HyperMusicCover/actions)
+- [nightly-20261014](https://github.com/zyl6932/HyperMusicCover/releases/tag/nightly-20261014)
+- [该候选的 Main](https://github.com/zyl6932/HyperMusicCover/blob/9df240d41130c23b2cad1980c2bf6d209b22b172/app/src/main/java/com/os4/musiccover/Main.java#L1673)
+- [该候选的 ClockCollapse](https://github.com/zyl6932/HyperMusicCover/blob/9df240d41130c23b2cad1980c2bf6d209b22b172/app/src/main/java/com/os4/musiccover/ClockCollapse.java#L657)
+
+本次仍仅调研与文档，无运行时代码、Hook、设置或作用域变化；不运行构建/测试来
+冒充功能验证，也无设备操作和性能测量。
