@@ -107,18 +107,27 @@ import androidx.core.graphics.ColorUtils
 import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 
 @Composable internal fun MediaSettingsPage(padding: PaddingValues, settings: ModifierSettings, update: (ModifierSettings) -> Unit, onOpenConstraintEditor: (String) -> Unit, onScroll: (Float) -> Unit) = SettingsScrollPage(padding, onScroll) {
+    SettingsSection(topLabel = "修改开关") {
+        SettingsSwitchItem(
+            "停用媒体与超级岛修改",
+            "保留系统效果，重启系统界面生效；白名单需同时重启小米服务框架",
+            settings.disableMediaIslandHooks,
+            { update(settings.copy(disableMediaIslandHooks = it)) },
+        )
+    }
+    if (settings.disableMediaIslandHooks) return@SettingsScrollPage
     val context = LocalContext.current
     val selectedPreset = MediaLayoutPresets.selected(settings)
     SettingsSection(topLabel = "媒体布局预设") {
         if (settings.mediaLayoutPreset.isBlank()) {
             Text(
-                "当前沿用旧版媒体设置。首次勾选预设或调整下方高度后，普通媒体与超级岛会切换到新预设。",
+                "当前沿用旧配置，选择预设后切换。",
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
             )
         }
         Text(
-            "锁屏普通媒体与展开的超级岛媒体共用预设。勾选一个预设；点击名称可编辑该预设的两份 XML。",
+            "普通媒体与超级岛共用预设，点击名称编辑布局。",
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
         )
@@ -171,7 +180,7 @@ import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
         )
         SettingsSwitchItem(
             "自定义通知背景",
-            "恢复通知中心、锁屏与息屏的专用深色材质",
+            "通知中心、锁屏与息屏生效",
             settings.dynamicIslandNotificationOpacityEnabled,
             { update(settings.copy(dynamicIslandNotificationOpacityEnabled = it)) },
             enabled = !settings.disableShadeGlassHooks,
@@ -244,7 +253,7 @@ import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
         )
         SettingsSwitchItem(
             "4×7 布局保留桌面搜索",
-            "按桌面代码结构自动适配；需系统桌面与系统界面作用域，首次使用重启两者，再开启桌面搜索",
+            "需桌面与系统界面作用域；重启两者后开启桌面搜索",
             settings.desktopSearch4x7Enabled,
             { update(settings.copy(desktopSearch4x7Enabled = it)) },
             enabled = android.os.Build.VERSION.SDK_INT >= 36,
@@ -258,8 +267,8 @@ import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
         )
         WindowDropdownPreference(
             title = "桌面时钟材质（实验）",
-            summary = if (settings.desktopClockMaterial == 2) "柔光玻璃尚未接通，暂保留系统原绘制"
-                else "默认经典时钟的主时间；模糊需可用的背景纹理，下次时钟重绘时生效",
+            summary = if (settings.desktopClockMaterial == 2) "尚未接通，保留系统效果"
+                else "仅经典时钟；无背景纹理时保留原样",
             items = listOf("默认", "模糊", "柔光玻璃"),
             selectedIndex = settings.desktopClockMaterial.let { if (it in 0..2) it else 0 },
             onSelectedIndexChange = { update(settings.copy(desktopClockMaterial = it)) },
@@ -290,7 +299,7 @@ import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
         DesktopWidgetCompatibilitySetting(settings.androidWidgetStackEnabled || settings.androidWidgetGlassEnabled)
         SettingsSwitchItem(
             "允许安卓小组件堆叠",
-            "在澎湃目录显示本机小组件；需系统桌面与智能助理作用域，开启后重启两者；关闭前先移出堆叠",
+            "需桌面与智能助理作用域；重启生效，关闭前移出堆叠",
             settings.androidWidgetStackEnabled,
             { update(settings.copy(androidWidgetStackEnabled = it)) },
             enabled = android.os.Build.VERSION.SDK_INT >= 36,
@@ -363,7 +372,7 @@ import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
     SettingsSection(topLabel = "锁屏指纹") {
         SettingsSwitchItem(
             "隐藏锁屏指纹图标",
-            "保留指纹解锁功能",
+            "保留指纹解锁，不影响支付与应用锁",
             settings.hideLockscreenFingerprintIcon,
             { update(settings.copy(hideLockscreenFingerprintIcon = it)) },
         )
@@ -417,26 +426,38 @@ import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
     SettingsSection(topLabel = "状态栏电池") {
         SettingsSwitchItem(
             "无数字电池使用实心框",
-            "使用内部数字样式的电池框，仍不显示数字；充电和性能标识保留在框内",
+            "不显示数字，充电与性能标识保留在框内",
             settings.statusBarSolidBatteryFrame,
             { update(settings.copy(statusBarSolidBatteryFrame = it)) },
+        )
+        SettingsSwitchItem(
+            "控制中心展开时外显电量",
+            "仅展开时显示，收起恢复隐藏",
+            settings.controlCenterShowBatteryPercent,
+            { update(settings.copy(controlCenterShowBatteryPercent = it)) },
         )
     }
     SettingsSection(topLabel = "状态栏时间") {
         SettingsSwitchItem(
             "24 小时制隐藏小时前导零",
-            "例如 08:05 显示为 8:05，通知中心时钟同步生效",
+            "08:05 → 8:05，通知中心同步",
             settings.statusBarHideClockLeadingZero,
             { update(settings.copy(statusBarHideClockLeadingZero = it)) },
         )
         SettingsSwitchItem(
             "时间显示秒数",
-            "仅在亮屏且状态栏时钟可见时每秒刷新",
+            "",
             settings.statusBarShowSeconds,
             { update(settings.copy(statusBarShowSeconds = it)) },
         )
     }
     SettingsSection(topLabel = "状态栏信号") {
+        SettingsSwitchItem(
+            "圆润信号和 WLAN 图标",
+            "",
+            settings.roundedNetworkIcons,
+            { update(settings.copy(roundedNetworkIcons = it)) },
+        )
         SettingsSwitchItem(
             "Wi-Fi 下隐藏信号角标",
             "隐藏移动信号左上角的 4G/5G 标识",
@@ -505,6 +526,12 @@ import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
             limit = 2f,
             step = 0.1f,
         )
+    }
+    SettingsSection(topLabel = "WLAN 左右边距") {
+        NetworkActivityOffsetSetting("左边距", settings.statusBarWifiMarginLeft,
+            { update(settings.copy(statusBarWifiMarginLeft = it)) }, limit = 2f, step = 0.1f)
+        NetworkActivityOffsetSetting("右边距", settings.statusBarWifiMarginRight,
+            { update(settings.copy(statusBarWifiMarginRight = it)) }, limit = 2f, step = 0.1f)
     }
     SettingsSection(topLabel = "实时网速左右边距") {
         NetworkActivityOffsetSetting(

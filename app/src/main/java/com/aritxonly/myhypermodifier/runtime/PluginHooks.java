@@ -139,6 +139,10 @@ final class PluginHooks {
             ConcurrentHashMap.newKeySet();
     private static final ThreadLocal<Boolean> INSTALLING_LOADED_CLASS_HOOK = new ThreadLocal<>();
     private static final ThreadLocal<ControlCenterSurface> INFLATING_PLUGIN_DRAWABLE = new ThreadLocal<>();
+
+    static boolean preservingMediaDrawable() {
+        return disableMediaIslandHooks && INFLATING_PLUGIN_DRAWABLE.get() == ControlCenterSurface.MEDIA;
+    }
     private static final Map<View, List<Method>> CONTROL_CENTER_REFRESH_METHODS =
             Collections.synchronizedMap(new WeakHashMap<>());
     private static final Map<Drawable, ControlCenterSurface> PENDING_PLUGIN_DRAWABLES =
@@ -303,8 +307,10 @@ final class PluginHooks {
      * is why a dimension-only hook could previously miss parts of the control centre.
      */
     void installSystemUiPluginCornerHooks(ClassLoader classLoader) {
-        DynamicIslandGlassHooks.install(module, classLoader);
-        MediaIslandHostHooks.install(module, classLoader);
+        if (!disableMediaIslandHooks) {
+            DynamicIslandGlassHooks.install(module, classLoader);
+            MediaIslandHostHooks.install(module, classLoader);
+        }
         hookPluginCornerSetter(classLoader,
                 "miui.systemui.controlcenter.qs.tileview.QSTileItemIconView",
                 "setCornerRadius", ControlCenterSurface.TILE);
@@ -418,6 +424,7 @@ final class PluginHooks {
 
     private void hookPluginCornerSetter(ClassLoader classLoader, String className, String methodName,
                                         ControlCenterSurface surface, boolean advancedOnly) {
+        if (disableMediaIslandHooks && surface == ControlCenterSurface.MEDIA) return;
         try {
             hookPluginCornerSetter(Class.forName(className, false, classLoader), methodName,
                     surface, advancedOnly);
@@ -428,6 +435,7 @@ final class PluginHooks {
 
     private void hookPluginCornerSetter(Class<?> targetClass, String methodName,
                                         ControlCenterSurface surface, boolean advancedOnly) {
+        if (disableMediaIslandHooks && surface == ControlCenterSurface.MEDIA) return;
         try {
             Method method = targetClass.getMethod(methodName, float.class);
             if (!INSTALLED_PLUGIN_METHOD_HOOKS.add(method)) return;
@@ -435,6 +443,7 @@ final class PluginHooks {
                     .setId("plugin-" + targetClass.getName() + "-" + methodName)
                     .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
                     .intercept(chain -> {
+                        if (disableMediaIslandHooks && surface == ControlCenterSurface.MEDIA) return chain.proceed();
                         if (chain.getThisObject() instanceof View) {
                             rememberControlCenterSetter((View) chain.getThisObject(), method);
                         }
@@ -544,7 +553,8 @@ final class PluginHooks {
                         rememberPluginDrawable(chain.getThisObject(), surface);
                         Object argument = chain.getArg(0);
                         float originalPixels = argument instanceof Float ? (Float) argument : 0f;
-                        if (!controlCenterEnabled || surface == null) {
+                        if (!controlCenterEnabled || surface == null
+                                || (disableMediaIslandHooks && surface == ControlCenterSurface.MEDIA)) {
                             return chain.proceed();
                         }
                         float pixels = controlCenterRadius(surface)
@@ -560,7 +570,8 @@ final class PluginHooks {
                         rememberPluginDrawable(chain.getThisObject(), surface);
                         Object argument = chain.getArg(0);
                         float[] original = argument instanceof float[] ? (float[]) argument : null;
-                        if (!controlCenterEnabled || surface == null) {
+                        if (!controlCenterEnabled || surface == null
+                                || (disableMediaIslandHooks && surface == ControlCenterSurface.MEDIA)) {
                             return chain.proceed();
                         }
                         float pixels = controlCenterRadius(surface)
@@ -630,9 +641,8 @@ final class PluginHooks {
                             // APK.  The drawable entry name is the stable identity here.
                             ControlCenterSurface surface = resources == null || resourceId == null
                                     ? null : drawableSurface(resourceEntryName(resources, resourceId));
-                            if (surface != null) {
-                                INFLATING_PLUGIN_DRAWABLE.set(surface);
-                            }
+                            ControlCenterSurface previousSurface = INFLATING_PLUGIN_DRAWABLE.get();
+                            if (surface != null) INFLATING_PLUGIN_DRAWABLE.set(surface);
                             try {
                                 ensureLoaded();
                                 Object result = chain.proceed();
@@ -643,7 +653,8 @@ final class PluginHooks {
                                 return result;
                             } finally {
                                 if (surface != null) {
-                                    INFLATING_PLUGIN_DRAWABLE.remove();
+                                    if (previousSurface == null) INFLATING_PLUGIN_DRAWABLE.remove();
+                                    else INFLATING_PLUGIN_DRAWABLE.set(previousSurface);
                                 }
                             }
                         });

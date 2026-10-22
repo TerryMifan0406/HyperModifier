@@ -32,19 +32,19 @@ private fun UnifiedGlassSettings(settings: ModifierSettings, update: (ModifierSe
     SettingsSection(topLabel = "统一玻璃材质") {
         SettingsSwitchItem(
             "统一光学参数",
-            "作用域内的原生 Glass 共用边缘、反射和折射参数",
+            "共用边缘、反射和折射参数",
             settings.unifiedGlassEnabled,
             { update(settings.copy(unifiedGlassEnabled = it)) },
             enabled = !settings.disableShadeGlassHooks,
         )
         NavigationSettingItem(
             title = "从已有材质载入基准",
-            summary = "覆盖下方 7 项参数，再独立微调；载入不会自动开启功能",
+            summary = "仅载入参数，不自动启用",
             enabled = !settings.disableShadeGlassHooks,
             onClick = { selectingBase = true },
         )
         Text(
-            "保留各材质的底色、不透明度、明暗、方向光、背景和按压遮罩。统一参数优先于单独材质设置；模糊半径在上级页面单独设置。关闭后恢复各材质原有参数。仅支持原生 42 项 Glass，不转换其他渲染材质。",
+            "仅支持原生 Glass。优先于单项设置，保留配色与不透明度；关闭恢复原参数。",
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             style = MiuixTheme.textStyles.footnote1,
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
@@ -71,17 +71,17 @@ private fun UnifiedGlassSettings(settings: ModifierSettings, update: (ModifierSe
         DeadlinerMiuixDialog(
             show = true,
             title = "选择基准材质",
-            summary = "仅复制光学参数，替换当前 7 项调整。已保存材质使用其保存值，不要求来源开关开启。",
+            summary = "替换当前光学参数，来源无需启用",
             onDismissRequest = { selectingBase = false },
         ) {
             fun load(values: FloatArray) {
                 update(scope.setParameters(settings, false, values))
                 selectingBase = false
             }
-            NavigationSettingItem("通知卡片原生基准", "恢复通知卡片基准中的光学参数", onClick = { load(ShadeCardGlassPolicy.defaults()) })
-            NavigationSettingItem("通知 / 控制中心 · 已保存", "使用当前保存的卡片参数", onClick = { load(GlassParameterScope.ShadeCards.values(settings, false)) })
-            NavigationSettingItem("悬浮通知 · 已保存亮色", "使用当前保存的亮色参数", onClick = { load(GlassParameterScope.HeadsUp.values(settings, false)) })
-            NavigationSettingItem("悬浮通知 · 已保存暗色", "使用当前保存的暗色参数", onClick = { load(GlassParameterScope.HeadsUp.values(settings, true)) })
+            NavigationSettingItem("通知卡片原生基准", "", onClick = { load(ShadeCardGlassPolicy.defaults()) })
+            NavigationSettingItem("通知 / 控制中心 · 已保存", "", onClick = { load(GlassParameterScope.ShadeCards.values(settings, false)) })
+            NavigationSettingItem("悬浮通知 · 已保存亮色", "", onClick = { load(GlassParameterScope.HeadsUp.values(settings, false)) })
+            NavigationSettingItem("悬浮通知 · 已保存暗色", "", onClick = { load(GlassParameterScope.HeadsUp.values(settings, true)) })
         }
     }
     HeadsUpGlassParameterDialog(

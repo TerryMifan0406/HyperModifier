@@ -7,6 +7,12 @@ internal object SettingsBackupCodec {
     const val MAX_BYTES = 4 * 1024 * 1024
     private const val FORMAT = "com.aritxonly.myhypermodifier.config"
 
+    // Retired experiment keys may be present in backups made before the 1.5.3 freeze.
+    private val retiredRoundedKeys = setOf(
+        "rounded_icon_corner_radius", "rounded_mobile_weight", "rounded_wifi_weight",
+        "rounded_wifi_scale", "rounded_battery_width", "rounded_battery_height", "rounded_mobile_offset_y"
+    )
+
     fun encode(values: Map<String, Any>): String = JSONObject().apply {
         put("format", FORMAT)
         put("version", 1)
@@ -23,6 +29,11 @@ internal object SettingsBackupCodec {
         require(values.length() > 0) { "备份中没有配置" }
         return buildMap {
             values.keys().forEach { key ->
+                if (key in retiredRoundedKeys) {
+                    val retired = values.get(key)
+                    require(retired is Number && retired.toFloat().isFinite()) { "配置类型错误：$key" }
+                    return@forEach
+                }
                 val expected = schema[key] ?: error("备份包含不支持的配置：$key")
                 val value = values.get(key)
                 val converted: Any = when (expected) {

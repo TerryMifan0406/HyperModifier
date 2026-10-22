@@ -175,11 +175,13 @@ final class RuntimeRefreshRegistry {
         GestureHandleHooks.refresh();
         StatusBarClockSecondsHooks.refresh();
         StatusBarBatteryFrameHooks.refresh();
+        ControlCenterBatteryPercentHooks.refresh();
         StatusBarNetworkVisibilityHooks.refresh();
+        RoundedNetworkIconHooks.refresh();
         StatusBarNetworkMarginsHooks.refresh();
         // Player Island is constructed before remote preferences are often available. Its main
         // and dummy backgrounds must both be remeasured after the actual height arrives.
-        refreshMediaIslandRoots();
+        if (!disableMediaIslandHooks) refreshMediaIslandRoots();
         List<Map.Entry<View, List<Method>>> setters;
         synchronized (CONTROL_CENTER_REFRESH_METHODS) {
             setters = new ArrayList<>(CONTROL_CENTER_REFRESH_METHODS.entrySet());
@@ -220,12 +222,14 @@ final class RuntimeRefreshRegistry {
         for (Map.Entry<Drawable, ControlCenterSurface> entry : drawables) {
             Drawable drawable = entry.getKey();
             ControlCenterSurface surface = entry.getValue();
-            if (drawable == null || surface == null || !controlCenterEnabled) continue;
+            if (drawable == null || surface == null || !controlCenterEnabled
+                    || (disableMediaIslandHooks && surface == ControlCenterSurface.MEDIA)) continue;
             float pixels = controlCenterRadius(surface)
                     * Resources.getSystem().getDisplayMetrics().density;
             setDrawableCornerRadius(drawable, pixels);
         }
 
+        if (disableMediaIslandHooks) return;
         List<Map.Entry<Object, PendingMediaConstraint>> constraints;
         synchronized (PENDING_MEDIA_CONSTRAINTS) {
             constraints = new ArrayList<>(PENDING_MEDIA_CONSTRAINTS.entrySet());
@@ -251,6 +255,7 @@ final class RuntimeRefreshRegistry {
     }
 
     static void rememberPluginDrawable(Object candidate, ControlCenterSurface surface) {
+        if (disableMediaIslandHooks && surface == ControlCenterSurface.MEDIA) return;
         if (!(candidate instanceof Drawable) || surface == null) return;
         synchronized (PENDING_PLUGIN_DRAWABLES) {
             PENDING_PLUGIN_DRAWABLES.put((Drawable) candidate, surface);

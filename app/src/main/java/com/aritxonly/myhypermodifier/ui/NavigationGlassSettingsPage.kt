@@ -31,9 +31,6 @@ internal fun NavigationGlassSettingsPage(
             hyperGlassifyHiddenNavigationLift = liftValue.coerceIn(0f, 48f)))
     }
     SettingsScrollPage(padding, onScroll) {
-        SettingsSection {
-            SettingItem("自研柔光玻璃管线", "参考 Apache-2.0 开源项目 AndroidLiquidGlass 的 Shader 设计")
-        }
         SettingsSection(topLabel = "模糊度") {
             NavigationMaterialRadiusSlider(value = preview.blurRadius, enabled = true,
                 onValueChange = { preview = preview.copy(blurRadius = it) },

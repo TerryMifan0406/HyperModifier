@@ -82,6 +82,7 @@ final class ModuleSettings {
     static volatile float volumePanelRadius = ModuleDefaultValues.VOLUME_PANEL_RADIUS;
     static volatile boolean miLinkMainCardsEnabled = ModuleDefaultValues.MI_LINK_MAIN_CARDS_ENABLED;
     static volatile float miLinkMainCardRadius = ModuleDefaultValues.MI_LINK_MAIN_CARD_RADIUS;
+    static volatile boolean disableMediaIslandHooks = false;
     static volatile boolean mediaEnabled = ModuleDefaultValues.MEDIA_ENABLED;
     static volatile float expandedHeight = 152f;
     static volatile float collapsedHeight = 120f;
@@ -139,6 +140,8 @@ final class ModuleSettings {
     static volatile boolean notificationClockShowSeconds = false;
     static volatile boolean statusBarShowSeconds = false;
     static volatile boolean statusBarSolidBatteryFrame = false;
+    static volatile boolean roundedNetworkIcons = false;
+    static volatile boolean controlCenterShowBatteryPercent = false;
     static volatile boolean statusBarHideClockLeadingZero = false;
     static volatile boolean statusBarHideWifiStandard = false;
     static volatile float statusBarMobileActivityOffsetX = 0f;
@@ -147,6 +150,8 @@ final class ModuleSettings {
     static volatile float statusBarWifiActivityOffsetY = 0f;
     static volatile float statusBarNetworkSpeedMarginRight = 0f;
     static volatile float statusBarMobileMarginLeft = 0f;
+    static volatile float statusBarWifiMarginLeft = 0f;
+    static volatile float statusBarWifiMarginRight = 0f;
     static volatile float statusBarMobileMarginRight = 0f;
     static volatile float statusBarNetworkSpeedMarginLeft = 0f;
     static volatile boolean statusBarNetworkTypeEnabled = false;
@@ -257,6 +262,7 @@ final class ModuleSettings {
             systemUiRetryGeneration = preferences.getInt("systemui_retry_generation", 0);
             String token = preferences.getString("diagnostic_token", "");
             diagnosticToken = token == null ? "" : token;
+            disableMediaIslandHooks = preferences.getBoolean("disable_media_island_hooks", false);
             disableShadeGlassHooks = preferences.getBoolean("disable_shade_glass_hooks", false);
             globalBackgroundBlurPercent = Math.max(0, Math.min(200, Math.round(preferences.getFloat(
                     "global_background_blur_percent", 100f))));
@@ -504,6 +510,7 @@ final class ModuleSettings {
             headsUpGlassParametersEnabled = values.getBoolean(
                     "heads_up_glass_parameters_enabled", false);
             shadeCardGlassParametersEnabled = values.getBoolean("shade_card_glass_parameters_enabled", false);
+            disableMediaIslandHooks = values.getBoolean("disable_media_island_hooks", false);
             disableShadeGlassHooks = values.getBoolean("disable_shade_glass_hooks", false);
             unifiedGlassParameters = UnifiedGlassPolicy.sanitize(parseHeadsUpGlassParameters(
                     values.getString("unified_glass_parameters", ""), ShadeCardGlassPolicy.defaults()));
@@ -636,6 +643,8 @@ final class ModuleSettings {
             notificationClockShowSeconds = values.getBoolean("notification_clock_show_seconds", false);
             statusBarShowSeconds = values.getBoolean("status_bar_show_seconds", false);
             statusBarSolidBatteryFrame = values.getBoolean("status_bar_solid_battery_frame", false);
+            roundedNetworkIcons = values.getBoolean("rounded_network_icons", false);
+            controlCenterShowBatteryPercent = values.getBoolean("control_center_show_battery_percent", false);
             statusBarHideClockLeadingZero = values.getBoolean("status_bar_hide_clock_leading_zero", false);
             statusBarHideWifiStandard = values.getBoolean("status_bar_hide_wifi_standard", false);
             statusBarMobileActivityOffsetX = values.getFloat("status_bar_mobile_activity_offset_x", 0f);
@@ -644,6 +653,8 @@ final class ModuleSettings {
             statusBarWifiActivityOffsetY = values.getFloat("status_bar_wifi_activity_offset_y", 0f);
             statusBarNetworkSpeedMarginRight = values.getFloat("status_bar_network_speed_right_gap", 0f);
             statusBarMobileMarginLeft = values.getFloat("status_bar_mobile_margin_left", 0f);
+            statusBarWifiMarginLeft = values.getFloat("status_bar_wifi_margin_left", 0f);
+            statusBarWifiMarginRight = values.getFloat("status_bar_wifi_margin_right", 0f);
             statusBarMobileMarginRight = values.getFloat("status_bar_mobile_margin_right", 0f);
             statusBarNetworkSpeedMarginLeft = values.getFloat("status_bar_network_speed_margin_left", 0f);
             statusBarNetworkTypeEnabled = values.getBoolean("status_bar_network_type_enabled", false);
@@ -727,6 +738,13 @@ final class ModuleSettings {
             compactMediaIslandXml = values.getString("compact_media_island_xml", "");
             standardMediaXml = values.getString("standard_media_xml", "");
             standardMediaIslandXml = values.getString("standard_media_island_xml", "");
+            if (disableMediaIslandHooks) {
+                mediaEnabled = islandEnabled = islandProgressBar = false;
+                hideAodActions = hideAodSeamless = false;
+                superIslandWhitelistDisabled = superIslandHidePullBar = superIslandContentBottomMarginEnabled = false;
+                customMediaConstraintSetEnabled = customMediaIslandConstraintSetEnabled = false;
+                dynamicIslandOpacityEnabled = dynamicIslandNotificationOpacityEnabled = false;
+            }
             lastLoadStatus = "loaded(remote:" + values.size() + ')';
             return true;
         } catch (Throwable throwable) {
@@ -747,6 +765,7 @@ final class ModuleSettings {
     }
 
     static int activeMediaPresetHeight() {
+        if (disableMediaIslandHooks) return 0;
         switch (mediaLayoutPreset) {
             case "system": return systemMediaHeight;
             case "compact": return compactMediaHeight;

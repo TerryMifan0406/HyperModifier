@@ -25,6 +25,8 @@ class FreshInstallDefaultsTest {
             assertFalse(settings.superIslandWhitelistDisabled)
             assertFalse(settings.statusBarShowSeconds)
             assertFalse(settings.statusBarSolidBatteryFrame)
+            assertFalse(settings.roundedNetworkIcons)
+            assertFalse(settings.controlCenterShowBatteryPercent)
             assertFalse(settings.notificationClockShowSeconds)
             assertFalse(settings.statusBarHideClockLeadingZero)
             assertFalse(settings.lowerLockscreenPasswordPage)

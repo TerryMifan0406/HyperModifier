@@ -141,16 +141,25 @@ int materialMode(const WidgetIdentity &identity) {
         clockGlassEnabled.load() && clockGlassRules.matches(identity));
 }
 uint64_t booleanHook(void *bundle, const char *key, size_t size) {
-    if (active.load(std::memory_order_acquire)
-            && (widgetTextEquals(key, size, "miuiWidget") || widgetTextEquals(key, size, "supportBackgroundBlur")
-                || widgetTextEquals(key, size, "usingFolderGlassStyle"))) {
+    if (!active.load(std::memory_order_acquire))
+        return reinterpret_cast<GetBoolean>(originalBoolean)(bundle, key, size);
+    bool miui = widgetTextEquals(key, size, "miuiWidget");
+    bool blur = widgetTextEquals(key, size, "supportBackgroundBlur");
+    bool style = widgetTextEquals(key, size, "usingFolderGlassStyle");
+    if (!miui && !blur && !style)
+        return reinterpret_cast<GetBoolean>(originalBoolean)(bundle, key, size);
+    // Stacking eligibility is independent of material selection. Avoid copying
+    // provider strings, taking configMutex or evaluating glass rules for it.
+    if (miui && stackEnabled.load()) return registry.hasIdentity(bundle) ? 0x100
+        : reinterpret_cast<GetBoolean>(originalBoolean)(bundle, key, size);
+    if (glassEnabled.load()) {
         WidgetIdentity identity = registry.identity(bundle);
         if (identity.valid()) {
             std::lock_guard<std::mutex> guard(configMutex);
             int mode = materialMode(identity);
-            if (glassEnabled.load() && widgetTextEquals(key, size, "supportBackgroundBlur"))
+            if (glassEnabled.load() && blur)
                 return mode > 0 ? 0x100 : 0;
-            if (glassEnabled.load() && mode > 0 && widgetTextEquals(key, size, "usingFolderGlassStyle"))
+            if (glassEnabled.load() && mode > 0 && style)
                 return mode == 2 ? 0x100 : 0;
             if (overrideWidgetBoolean(key, size, stackEnabled.load(), glassEnabled.load() && mode > 0))
                 return 0x100;
@@ -161,10 +170,13 @@ uint64_t booleanHook(void *bundle, const char *key, size_t size) {
 bool containsHook(void *bundle, const char *key, size_t size) {
     if (active.load(std::memory_order_acquire) && glassEnabled.load()
             && (widgetTextEquals(key, size, "supportBackgroundBlur") || widgetTextEquals(key, size, "usingFolderGlassStyle"))) {
+        // Presence of this capability depends only on a known widget identity,
+        // including explicit OFF instances. Preserve that contract without rules.
+        if (widgetTextEquals(key, size, "supportBackgroundBlur")) return registry.hasIdentity(bundle)
+            || reinterpret_cast<Contains>(originalContains)(bundle, key, size);
         WidgetIdentity identity = registry.identity(bundle);
         if (identity.valid()) {
             std::lock_guard<std::mutex> guard(configMutex);
-            if (widgetTextEquals(key, size, "supportBackgroundBlur")) return true;
             if (materialMode(identity) > 0 && widgetTextEquals(key, size, "usingFolderGlassStyle")) return true;
         }
     }

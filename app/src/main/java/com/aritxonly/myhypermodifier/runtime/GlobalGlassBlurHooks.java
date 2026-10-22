@@ -41,6 +41,7 @@ final class GlobalGlassBlurHooks {
                         Object receiver = chain.getThisObject();
                         if (!(receiver instanceof View)) return chain.proceed();
                         View view = (View) receiver;
+                        if (MediaIslandGate.protectedView(view)) return chain.proceed();
                         // Load once from this View's context; no ActivityThread reflection on animation ticks.
                         if (!isLoaded()) markLoaded(view.getContext());
                         int small = (Integer) chain.getArg(0);
@@ -102,6 +103,7 @@ final class GlobalGlassBlurHooks {
 
     /** Some material targets apply a recipe without making a native radius call. */
     static boolean onMaterialApplied(View view) {
+        if (MediaIslandGate.protectedView(view)) return false;
         if (setter == null || !moduleHooksEnabled || disableShadeGlassHooks) return false;
         if (!isLoaded()) markLoaded(view.getContext());
         GlobalGlassBlurState state;
@@ -118,6 +120,7 @@ final class GlobalGlassBlurHooks {
     }
 
     static boolean onExpandedMaterialApplied(View owner) {
+        if (ModuleSettings.disableMediaIslandHooks) return false;
         if (setter == null || !moduleHooksEnabled || disableShadeGlassHooks) return false;
         if (!isLoaded()) markLoaded(owner.getContext());
         GlobalGlassBlurState state;

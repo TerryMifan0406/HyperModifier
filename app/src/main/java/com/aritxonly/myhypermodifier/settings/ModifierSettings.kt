@@ -74,6 +74,7 @@ data class ModifierSettings(
     val miLinkMainCardsEnabled: Boolean = ModuleDefaultValues.MI_LINK_MAIN_CARDS_ENABLED,
     val miLinkMainCardRadius: Float = ModuleDefaultValues.MI_LINK_MAIN_CARD_RADIUS,
     val mediaEnabled: Boolean = ModuleDefaultValues.MEDIA_ENABLED,
+    val disableMediaIslandHooks: Boolean = false,
     val expandedHeight: Float = 152f,
     val collapsedHeight: Float = 120f,
     val fullAodHeight: Float = 80f,
@@ -126,6 +127,8 @@ data class ModifierSettings(
     val statusBarHideWifiActivity: Boolean = false,
     val statusBarShowSeconds: Boolean = false,
     val statusBarSolidBatteryFrame: Boolean = false,
+    val roundedNetworkIcons: Boolean = false,
+    val controlCenterShowBatteryPercent: Boolean = false,
     val notificationClockShowSeconds: Boolean = false,
     val statusBarHideClockLeadingZero: Boolean = false,
     val statusBarHideWifiStandard: Boolean = false,
@@ -135,6 +138,8 @@ data class ModifierSettings(
     val statusBarWifiActivityOffsetY: Float = 0f,
     val statusBarNetworkSpeedMarginRight: Float = 0f,
     val statusBarMobileMarginLeft: Float = 0f,
+    val statusBarWifiMarginLeft: Float = 0f,
+    val statusBarWifiMarginRight: Float = 0f,
     val statusBarMobileMarginRight: Float = 0f,
     val statusBarNetworkSpeedMarginLeft: Float = 0f,
     val statusBarNetworkTypeEnabled: Boolean = false,
@@ -303,6 +308,8 @@ object ModifierSettingsPresets {
         statusBarHideWifiActivity = false,
         statusBarShowSeconds = false,
         statusBarSolidBatteryFrame = false,
+        roundedNetworkIcons = false,
+        controlCenterShowBatteryPercent = false,
         notificationClockShowSeconds = false,
         statusBarHideClockLeadingZero = false,
         statusBarHideWifiStandard = false,
@@ -312,6 +319,8 @@ object ModifierSettingsPresets {
         statusBarWifiActivityOffsetY = 0f,
         statusBarNetworkSpeedMarginRight = 0f,
         statusBarMobileMarginLeft = 0f,
+        statusBarWifiMarginLeft = 0f,
+        statusBarWifiMarginRight = 0f,
         statusBarMobileMarginRight = 0f,
         statusBarNetworkSpeedMarginLeft = 0f,
         statusBarNetworkTypeEnabled = false,
@@ -422,6 +431,7 @@ object ModifierSettingsStore {
     private const val KEY_MILINK_MAIN_CARDS = "milink_main_cards_enabled"
     private const val KEY_MILINK_MAIN_CARD_RADIUS = "milink_main_card_radius"
     private const val KEY_MEDIA = "media_enabled"
+    private const val KEY_DISABLE_MEDIA_ISLAND_HOOKS = "disable_media_island_hooks"
     private const val KEY_EXPANDED = "expanded_height"
     private const val KEY_COLLAPSED = "collapsed_height"
     private const val KEY_FULL_AOD = "full_aod_height"
@@ -491,6 +501,8 @@ object ModifierSettingsStore {
     private const val KEY_STATUS_BAR_HIDE_WIFI_ACTIVITY = "status_bar_hide_wifi_activity"
     private const val KEY_STATUS_BAR_SHOW_SECONDS = "status_bar_show_seconds"
     private const val KEY_STATUS_BAR_SOLID_BATTERY_FRAME = "status_bar_solid_battery_frame"
+    private const val KEY_ROUNDED_NETWORK_ICONS = "rounded_network_icons"
+    private const val KEY_CONTROL_CENTER_SHOW_BATTERY_PERCENT = "control_center_show_battery_percent"
     private const val KEY_NOTIFICATION_CLOCK_SHOW_SECONDS = "notification_clock_show_seconds"
     private const val KEY_STATUS_BAR_HIDE_CLOCK_LEADING_ZERO = "status_bar_hide_clock_leading_zero"
     private const val KEY_STATUS_BAR_HIDE_WIFI_STANDARD = "status_bar_hide_wifi_standard"
@@ -500,6 +512,8 @@ object ModifierSettingsStore {
     private const val KEY_STATUS_BAR_WIFI_ACTIVITY_OFFSET_Y = "status_bar_wifi_activity_offset_y"
     private const val KEY_STATUS_BAR_NETWORK_SPEED_MARGIN_RIGHT = "status_bar_network_speed_right_gap"
     private const val KEY_STATUS_BAR_MOBILE_MARGIN_LEFT = "status_bar_mobile_margin_left"
+    private const val KEY_STATUS_BAR_WIFI_MARGIN_LEFT = "status_bar_wifi_margin_left"
+    private const val KEY_STATUS_BAR_WIFI_MARGIN_RIGHT = "status_bar_wifi_margin_right"
     private const val KEY_STATUS_BAR_MOBILE_MARGIN_RIGHT = "status_bar_mobile_margin_right"
     private const val KEY_STATUS_BAR_NETWORK_SPEED_MARGIN_LEFT = "status_bar_network_speed_margin_left"
     private const val KEY_STATUS_BAR_NETWORK_TYPE_ENABLED = "status_bar_network_type_enabled"
@@ -671,6 +685,7 @@ object ModifierSettingsStore {
             miLinkMainCardsEnabled = prefs.getBoolean(KEY_MILINK_MAIN_CARDS, ModuleDefaultValues.MI_LINK_MAIN_CARDS_ENABLED),
             miLinkMainCardRadius = prefs.getFloat(KEY_MILINK_MAIN_CARD_RADIUS, ModuleDefaultValues.MI_LINK_MAIN_CARD_RADIUS),
             mediaEnabled = prefs.getBoolean(KEY_MEDIA, ModuleDefaultValues.MEDIA_ENABLED),
+            disableMediaIslandHooks = prefs.getBoolean(KEY_DISABLE_MEDIA_ISLAND_HOOKS, false),
             expandedHeight = prefs.getFloat(KEY_EXPANDED, 152f),
             collapsedHeight = prefs.getFloat(KEY_COLLAPSED, 120f),
             fullAodHeight = prefs.getFloat(KEY_FULL_AOD, 80f),
@@ -767,6 +782,8 @@ object ModifierSettingsStore {
             statusBarHideWifiActivity = prefs.getBoolean(KEY_STATUS_BAR_HIDE_WIFI_ACTIVITY, false),
             statusBarShowSeconds = prefs.getBoolean(KEY_STATUS_BAR_SHOW_SECONDS, false),
             statusBarSolidBatteryFrame = prefs.getBoolean(KEY_STATUS_BAR_SOLID_BATTERY_FRAME, false),
+            roundedNetworkIcons = prefs.getBoolean(KEY_ROUNDED_NETWORK_ICONS, false),
+            controlCenterShowBatteryPercent = prefs.getBoolean(KEY_CONTROL_CENTER_SHOW_BATTERY_PERCENT, false),
             notificationClockShowSeconds = prefs.getBoolean(KEY_NOTIFICATION_CLOCK_SHOW_SECONDS, false),
             statusBarHideClockLeadingZero = prefs.getBoolean(KEY_STATUS_BAR_HIDE_CLOCK_LEADING_ZERO, false),
             statusBarHideWifiStandard = prefs.getBoolean(KEY_STATUS_BAR_HIDE_WIFI_STANDARD, false),
@@ -776,6 +793,8 @@ object ModifierSettingsStore {
             statusBarWifiActivityOffsetY = prefs.getFloat(KEY_STATUS_BAR_WIFI_ACTIVITY_OFFSET_Y, 0f),
             statusBarNetworkSpeedMarginRight = prefs.getFloat(KEY_STATUS_BAR_NETWORK_SPEED_MARGIN_RIGHT, 0f),
             statusBarMobileMarginLeft = prefs.getFloat(KEY_STATUS_BAR_MOBILE_MARGIN_LEFT, 0f),
+            statusBarWifiMarginLeft = prefs.getFloat(KEY_STATUS_BAR_WIFI_MARGIN_LEFT, 0f),
+            statusBarWifiMarginRight = prefs.getFloat(KEY_STATUS_BAR_WIFI_MARGIN_RIGHT, 0f),
             statusBarMobileMarginRight = prefs.getFloat(KEY_STATUS_BAR_MOBILE_MARGIN_RIGHT, 0f),
             statusBarNetworkSpeedMarginLeft = prefs.getFloat(KEY_STATUS_BAR_NETWORK_SPEED_MARGIN_LEFT, 0f),
             statusBarNetworkTypeEnabled = prefs.getBoolean(KEY_STATUS_BAR_NETWORK_TYPE_ENABLED, false),
@@ -979,6 +998,7 @@ object ModifierSettingsStore {
             .putBoolean(KEY_MILINK_MAIN_CARDS, value.miLinkMainCardsEnabled)
             .putFloat(KEY_MILINK_MAIN_CARD_RADIUS, value.miLinkMainCardRadius)
             .putBoolean(KEY_MEDIA, value.mediaEnabled)
+            .putBoolean(KEY_DISABLE_MEDIA_ISLAND_HOOKS, value.disableMediaIslandHooks)
             .putFloat(KEY_EXPANDED, value.expandedHeight)
             .putFloat(KEY_COLLAPSED, value.collapsedHeight)
             .putFloat(KEY_FULL_AOD, value.fullAodHeight)
@@ -1070,6 +1090,8 @@ object ModifierSettingsStore {
             .putBoolean(KEY_STATUS_BAR_HIDE_WIFI_ACTIVITY, value.statusBarHideWifiActivity)
             .putBoolean(KEY_STATUS_BAR_SHOW_SECONDS, value.statusBarShowSeconds)
             .putBoolean(KEY_STATUS_BAR_SOLID_BATTERY_FRAME, value.statusBarSolidBatteryFrame)
+            .putBoolean(KEY_ROUNDED_NETWORK_ICONS, value.roundedNetworkIcons)
+            .putBoolean(KEY_CONTROL_CENTER_SHOW_BATTERY_PERCENT, value.controlCenterShowBatteryPercent)
             .putBoolean(KEY_NOTIFICATION_CLOCK_SHOW_SECONDS, value.notificationClockShowSeconds)
             .putBoolean(KEY_STATUS_BAR_HIDE_CLOCK_LEADING_ZERO, value.statusBarHideClockLeadingZero)
             .putBoolean(KEY_STATUS_BAR_HIDE_WIFI_STANDARD, value.statusBarHideWifiStandard)
@@ -1079,6 +1101,8 @@ object ModifierSettingsStore {
             .putFloat(KEY_STATUS_BAR_WIFI_ACTIVITY_OFFSET_Y, value.statusBarWifiActivityOffsetY)
             .putFloat(KEY_STATUS_BAR_NETWORK_SPEED_MARGIN_RIGHT, value.statusBarNetworkSpeedMarginRight)
             .putFloat(KEY_STATUS_BAR_MOBILE_MARGIN_LEFT, value.statusBarMobileMarginLeft)
+            .putFloat(KEY_STATUS_BAR_WIFI_MARGIN_LEFT, value.statusBarWifiMarginLeft)
+            .putFloat(KEY_STATUS_BAR_WIFI_MARGIN_RIGHT, value.statusBarWifiMarginRight)
             .putFloat(KEY_STATUS_BAR_MOBILE_MARGIN_RIGHT, value.statusBarMobileMarginRight)
             .putFloat(KEY_STATUS_BAR_NETWORK_SPEED_MARGIN_LEFT, value.statusBarNetworkSpeedMarginLeft)
             .putBoolean(KEY_STATUS_BAR_NETWORK_TYPE_ENABLED, value.statusBarNetworkTypeEnabled)
@@ -1378,6 +1402,7 @@ object ModifierSettingsStore {
         putBoolean(KEY_MILINK_MAIN_CARDS, value.miLinkMainCardsEnabled)
         putFloat(KEY_MILINK_MAIN_CARD_RADIUS, value.miLinkMainCardRadius)
         putBoolean(KEY_MEDIA, value.mediaEnabled)
+        putBoolean(KEY_DISABLE_MEDIA_ISLAND_HOOKS, value.disableMediaIslandHooks)
         putFloat(KEY_EXPANDED, value.expandedHeight)
         putFloat(KEY_COLLAPSED, value.collapsedHeight)
         putFloat(KEY_FULL_AOD, value.fullAodHeight)
@@ -1469,6 +1494,8 @@ object ModifierSettingsStore {
         putBoolean(KEY_STATUS_BAR_HIDE_WIFI_ACTIVITY, value.statusBarHideWifiActivity)
         putBoolean(KEY_STATUS_BAR_SHOW_SECONDS, value.statusBarShowSeconds)
         putBoolean(KEY_STATUS_BAR_SOLID_BATTERY_FRAME, value.statusBarSolidBatteryFrame)
+        putBoolean(KEY_ROUNDED_NETWORK_ICONS, value.roundedNetworkIcons)
+        putBoolean(KEY_CONTROL_CENTER_SHOW_BATTERY_PERCENT, value.controlCenterShowBatteryPercent)
         putBoolean(KEY_NOTIFICATION_CLOCK_SHOW_SECONDS, value.notificationClockShowSeconds)
         putBoolean(KEY_STATUS_BAR_HIDE_CLOCK_LEADING_ZERO, value.statusBarHideClockLeadingZero)
         putBoolean(KEY_STATUS_BAR_HIDE_WIFI_STANDARD, value.statusBarHideWifiStandard)
@@ -1478,6 +1505,8 @@ object ModifierSettingsStore {
         putFloat(KEY_STATUS_BAR_WIFI_ACTIVITY_OFFSET_Y, value.statusBarWifiActivityOffsetY)
         putFloat(KEY_STATUS_BAR_NETWORK_SPEED_MARGIN_RIGHT, value.statusBarNetworkSpeedMarginRight)
         putFloat(KEY_STATUS_BAR_MOBILE_MARGIN_LEFT, value.statusBarMobileMarginLeft)
+        putFloat(KEY_STATUS_BAR_WIFI_MARGIN_LEFT, value.statusBarWifiMarginLeft)
+        putFloat(KEY_STATUS_BAR_WIFI_MARGIN_RIGHT, value.statusBarWifiMarginRight)
         putFloat(KEY_STATUS_BAR_MOBILE_MARGIN_RIGHT, value.statusBarMobileMarginRight)
         putFloat(KEY_STATUS_BAR_NETWORK_SPEED_MARGIN_LEFT, value.statusBarNetworkSpeedMarginLeft)
         putBoolean(KEY_STATUS_BAR_NETWORK_TYPE_ENABLED, value.statusBarNetworkTypeEnabled)

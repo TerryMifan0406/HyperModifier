@@ -129,7 +129,7 @@ internal fun NotificationControlCenterSettingsPage(
     SettingsSection(topLabel = "通知中心时钟") {
         SettingsSwitchItem(
             "时间显示秒数",
-            "独立于状态栏显秒；隐藏小时前导零跟随状态栏设置",
+            "独立于状态栏显秒",
             settings.notificationClockShowSeconds,
             { update(settings.copy(notificationClockShowSeconds = it)) },
         )
@@ -603,7 +603,7 @@ internal fun MarketSettingsPage(
     SettingsSection(topLabel = "应用商店 · 已有官方底栏方案") {
         SettingsSwitchItem(
             "柔光玻璃悬浮底栏",
-            "已有官方底栏方案，模块默认关闭；首次开启后返回应用商店或重启应用",
+            "默认关闭，首次开启后重启应用商店",
             settings.marketFloatingNavigationEnabled,
             { update(settings.copy(marketFloatingNavigationEnabled = it)) },
         )

@@ -61,6 +61,7 @@ final class MediaConstraintCustomizer {
 
     /** Reproduces the edited miui_media_session_normal.xml ConstraintSet in the reference APK. */
     static void patchMediaConstraintSet(Context context, Object constraintSet, boolean island) {
+        if (disableMediaIslandHooks) return;
         String preset = mediaLayoutPreset;
         if ("system".equals(preset) || "compact".equals(preset)
                 || "standard".equals(preset) || "custom".equals(preset)) {
@@ -309,6 +310,7 @@ final class MediaConstraintCustomizer {
 
     /** Zero means leave the stock host geometry untouched. */
     static int requestedMediaIslandHeight(Context context) {
+        if (disableMediaIslandHooks) return 0;
         String preset = mediaLayoutPreset;
         if ("system".equals(preset) || "compact".equals(preset)
                 || "standard".equals(preset) || "custom".equals(preset)) {

@@ -34,6 +34,7 @@ final class UnifiedGlassHooks {
                     .intercept(chain -> {
                         if (disableShadeGlassHooks || isReplaying()) return chain.proceed();
                         View view = (View) chain.getThisObject();
+                        if (MediaIslandGate.protectedView(view)) return chain.proceed();
                         if (!isLoaded()) markLoaded(view.getContext());
                         float[] original = (float[]) chain.getArg(0);
                         if (!ShadeCardGlassPolicy.isActiveRecipe(original)) {

@@ -102,7 +102,7 @@ final class DynamicIslandGlassTint {
     }
 
     private static int config() {
-        if (!ModuleSettings.moduleHooksEnabled || ModuleSettings.disableShadeGlassHooks) return -1;
+        if (ModuleSettings.disableMediaIslandHooks || !ModuleSettings.moduleHooksEnabled || ModuleSettings.disableShadeGlassHooks) return -1;
         return effectiveOpacity(ModuleSettings.dynamicIslandOpacityEnabled, ModuleSettings.dynamicIslandExpandedOpacity);
     }
 

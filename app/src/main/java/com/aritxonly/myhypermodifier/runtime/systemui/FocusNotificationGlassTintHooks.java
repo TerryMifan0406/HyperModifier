@@ -151,8 +151,13 @@ final class FocusNotificationGlassTintHooks {
         }
     }
 
+    static boolean tracked(View view) {
+        if (!hasTargets) return false;
+        synchronized (TARGETS) { return TARGETS.containsKey(view); }
+    }
+
     private static int config() {
-        if (!ModuleSettings.moduleHooksEnabled || ModuleSettings.disableShadeGlassHooks
+        if (ModuleSettings.disableMediaIslandHooks || !ModuleSettings.moduleHooksEnabled || ModuleSettings.disableShadeGlassHooks
                 || !ModuleSettings.dynamicIslandNotificationOpacityEnabled) return -1;
         return Math.max(0, Math.min(100, ModuleSettings.dynamicIslandNotificationOpacity));
     }

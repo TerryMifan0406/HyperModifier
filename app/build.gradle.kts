@@ -49,8 +49,8 @@ android {
         minSdk = 33
         targetSdk = 35
         ndk { abiFilters += "arm64-v8a" }
-        versionCode = 40
-        versionName = "1.5.2"
+        versionCode = 41
+        versionName = "1.5.3"
     }
 
     signingConfigs {
@@ -75,6 +75,8 @@ android {
     }
 
     sourceSets.getByName("main").kotlin.srcDir(rootProject.file("third_party/miuix-glass/src/commonMain/kotlin"))
+
+    testOptions.unitTests.isIncludeAndroidResources = true
 
     buildFeatures {
         compose = true
@@ -107,5 +109,7 @@ dependencies {
     implementation("io.github.kyant0:shapes:1.2.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("io.github.libxposed:api:102.0.0")
+    testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("org.json:json:20180813")
 }

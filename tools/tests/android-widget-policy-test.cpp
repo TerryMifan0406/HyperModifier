@@ -40,6 +40,12 @@ int main() {
     assert(!rules.matches(compact) && !rules.matches(capsule) && rules.matches(otherIdentity));
     assert(!rules.parse("-*")); assert(!rules.parse("--org.example"));
     assert(!rules.matches(WidgetIdentity{}));
+    // Replacing a rule set clears previous exclusions, including after failure.
+    assert(rules.parse("*")); assert(rules.matches(compact));
+    assert(!rules.parse("*\n-" + compact.package + "\nbad rule"));
+    assert(rules.matches(compact));
+    assert(rules.parse(compact.package + "\n-" + compact.component));
+    assert(!rules.matches(compact) && rules.matches(capsule));
 
     assert(overrideWidgetGlassStyle(compact, "usingFolderGlassStyle", 21, true, true));
     assert(overrideWidgetGlassStyle(capsule, "usingFolderGlassStyle", 21, true, true));
@@ -99,6 +105,12 @@ int main() {
     assert(explicitStyles.resolve(compact, false, true) == 0);
     assert(explicitStyles.parse(""));
     assert(explicitStyles.resolve(compact, true, false) == 1);
+    assert(explicitStyles.resolve(firstInstance, true, false) == 1); // Old instance OFF was cleared.
+    assert(explicitStyles.parse(compact.component + "#42\t2\n" + compact.component + "#42\t0"));
+    assert(explicitStyles.resolve(firstInstance, true, false) == 0); // Last duplicate still wins.
+    assert(explicitStyles.resolve(secondInstance, true, false) == 1);
+    assert(!explicitStyles.parse(compact.component + "#42\t2\nbad"));
+    assert(explicitStyles.resolve(firstInstance, true, false) == 0);
     WidgetInstanceOwners ownedIds;
     int infoOwner, activityOwner, clonedOwner, untaggedOwner;
     ownedIds.set(&infoOwner, 42);
@@ -115,12 +127,14 @@ int main() {
     int owner1, owner2, bundle, copy, other;
     registry.observe(&owner1, &bundle, compact);
     registry.observe(&owner2, &bundle, compact);
+    assert(registry.hasIdentity(&bundle) && !registry.hasIdentity(&other));
     registry.cloned(&bundle, &copy);
     registry.forgetOwner(&owner1);
     assert(registry.selected(&bundle));
     registry.forgetOwner(&owner2);
     assert(!registry.selected(&bundle));
     assert(registry.selected(&copy));
+    assert(!registry.hasIdentity(&bundle) && registry.hasIdentity(&copy));
     assert(registry.identity(&copy).component == compact.component);
     registry.dropped(&copy);
     assert(!registry.selected(&copy));
@@ -148,6 +162,20 @@ int main() {
     assert(registry.identity(&bundle).appWidgetId == 0); // shared metadata cannot leak the last instance's override
     assert(registry.identity(&copy).appWidgetId == 42); // already-owned clone retains its original identity
     registry.forgetOwner(&owner1); registry.forgetOwner(&owner2); registry.dropped(&copy);
+
+    // Conflicting providers must never gain stacking via the cheap identity path.
+    registry.observe(&owner1, &bundle, compact);
+    registry.cloned(&bundle, &copy);
+    registry.observe(&owner2, &bundle, capsule);
+    assert(!registry.hasIdentity(&bundle) && registry.hasIdentity(&copy));
+    registry.forgetBorrowed(&other); // Unrelated drops leave aliases unchanged.
+    assert(!registry.hasIdentity(&bundle) && registry.hasIdentity(&copy));
+    registry.forgetBorrowed(&bundle);
+    registry.forgetBorrowed(&bundle); // Repeated cleanup is safe.
+    registry.forgetOwner(&owner1); registry.forgetOwner(&owner2); registry.dropped(&copy);
+    registry.observe(&owner1, &bundle, otherIdentity); // Address reuse has a fresh identity.
+    assert(registry.hasIdentity(&bundle) && registry.identity(&bundle).component == otherIdentity.component);
+    registry.forgetOwner(&owner1);
 
     // Provider discovery and RemoteViews updates can run on different threads.
     auto exercise = [&registry, &compact]() {

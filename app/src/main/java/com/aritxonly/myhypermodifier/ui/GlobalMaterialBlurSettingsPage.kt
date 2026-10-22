@@ -22,8 +22,8 @@ internal fun GlobalMaterialBlurSettingsPage(
             title = "统一玻璃材质",
             summary = when {
                 settings.disableShadeGlassHooks -> "玻璃材质修改已停用"
-                settings.unifiedGlassEnabled -> "已启用 · 共用边缘、反射和折射参数"
-                else -> "选择基准材质，统一光学参数"
+                settings.unifiedGlassEnabled -> "已启用"
+                else -> ""
             },
             onClick = onOpenUnifiedGlass,
         )

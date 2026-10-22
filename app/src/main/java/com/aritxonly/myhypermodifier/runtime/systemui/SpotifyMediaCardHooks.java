@@ -26,6 +26,7 @@ final class SpotifyMediaCardHooks {
     private SpotifyMediaCardHooks() {}
 
     static void install(XposedModule module, ClassLoader classLoader) throws ReflectiveOperationException {
+        if (ModuleSettings.disableMediaIslandHooks) return;
         if (INSTALLED.get()) return;
         Class<?> statusBarManager = Class.forName("android.app.StatusBarManager");
         Method useSessionActions = statusBarManager.getDeclaredMethod(
@@ -36,7 +37,7 @@ final class SpotifyMediaCardHooks {
                 .intercept(chain -> {
                     if (!SPOTIFY.equals(chain.getArg(0))) return chain.proceed();
                     ModuleSettings.ensureLoaded();
-                    if (!ModuleSettings.moduleHooksEnabled
+                    if (ModuleSettings.disableMediaIslandHooks || !ModuleSettings.moduleHooksEnabled
                             || (!ModuleSettings.spotifyFavoriteButtonEnabled
                             && !ModuleSettings.spotifyShuffleButtonEnabled)) return chain.proceed();
                     if (LOGGED.compareAndSet(false, true)) {
@@ -72,7 +73,7 @@ final class SpotifyMediaCardHooks {
                         Object result = chain.proceed();
                         if (SPOTIFY.equals(chain.getArg(1))) {
                             ModuleSettings.ensureLoaded();
-                            if (result != null && ModuleSettings.moduleHooksEnabled
+                            if (result != null && !ModuleSettings.disableMediaIslandHooks && ModuleSettings.moduleHooksEnabled
                                     && (ModuleSettings.spotifyFavoriteButtonEnabled
                                     || ModuleSettings.spotifyShuffleButtonEnabled)) {
                                 try {

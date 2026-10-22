@@ -875,10 +875,10 @@ private fun scopeStatuses(
             settings.globalBackgroundDimEnabled,
             settings.shadeBackgroundScaleDisabled,
             settings.globalBackgroundBlurPercent != 100f,
-            settings.mediaEnabled,
-            settings.mediaLayoutPreset.isNotBlank(),
-            settings.hideAodActions,
-            settings.hideAodSeamless,
+            (!settings.disableMediaIslandHooks && settings.mediaEnabled),
+            (!settings.disableMediaIslandHooks && settings.mediaLayoutPreset.isNotBlank()),
+            (!settings.disableMediaIslandHooks && settings.hideAodActions),
+            (!settings.disableMediaIslandHooks && settings.hideAodSeamless),
             settings.sinkLockscreenNotificationsForFingerprint,
             settings.hideLockscreenClockLeadingZero,
             settings.hideDesktopClockLeadingZero,
@@ -900,6 +900,8 @@ private fun scopeStatuses(
             settings.statusBarHideWifiActivity,
             settings.statusBarShowSeconds,
             settings.statusBarSolidBatteryFrame,
+            settings.roundedNetworkIcons,
+            settings.controlCenterShowBatteryPercent,
             settings.notificationClockShowSeconds,
             settings.statusBarHideClockLeadingZero,
             settings.statusBarHideWifiStandard,
@@ -908,15 +910,17 @@ private fun scopeStatuses(
             settings.statusBarWifiActivityOffsetX != 0f,
             settings.statusBarWifiActivityOffsetY != 0f,
             settings.statusBarNetworkSpeedMarginRight != 0f,
+            settings.statusBarWifiMarginLeft != 0f,
+            settings.statusBarWifiMarginRight != 0f,
             settings.statusBarMobileMarginLeft != 0f,
             settings.statusBarMobileMarginRight != 0f,
             settings.statusBarNetworkSpeedMarginLeft != 0f,
             settings.statusBarNetworkTypeEnabled,
             settings.volumePanelRadius > 0f,
-            settings.islandEnabled,
-            settings.superIslandWhitelistDisabled,
-            !settings.disableShadeGlassHooks && settings.dynamicIslandOpacityEnabled,
-            !settings.disableShadeGlassHooks && settings.dynamicIslandNotificationOpacityEnabled,
+            (!settings.disableMediaIslandHooks && settings.islandEnabled),
+            (!settings.disableMediaIslandHooks && settings.superIslandWhitelistDisabled),
+            !settings.disableMediaIslandHooks && !settings.disableShadeGlassHooks && settings.dynamicIslandOpacityEnabled,
+            !settings.disableMediaIslandHooks && !settings.disableShadeGlassHooks && settings.dynamicIslandNotificationOpacityEnabled,
         ).any { it },
         isActive = framework.isActive(ModuleScopePackage.SYSTEM_UI),
     ),
@@ -935,7 +939,7 @@ private fun scopeStatuses(
     ScopeStatus(
         appName = "系统界面插件",
         packageName = ModuleScopePackage.PLUGIN,
-        hasModification = (!settings.disableShadeGlassHooks && settings.dynamicIslandOpacityEnabled) || settings.controlCenterEnabled || settings.globalBackgroundBlurPercent != 100f ||
+        hasModification = (!settings.disableMediaIslandHooks && !settings.disableShadeGlassHooks && settings.dynamicIslandOpacityEnabled) || settings.controlCenterEnabled || settings.globalBackgroundBlurPercent != 100f ||
             settings.globalBackgroundDimEnabled || settings.shadeBackgroundScaleDisabled || GlassParameterScope.ShadeCards.enabled(settings) ||
             (!settings.disableShadeGlassHooks && (settings.globalGlassBlurEnabled || settings.unifiedGlassEnabled)),
         isActive = framework.isActive(ModuleScopePackage.PLUGIN),
@@ -943,7 +947,7 @@ private fun scopeStatuses(
     ScopeStatus(
         appName = "小米服务框架",
         packageName = ModuleScopePackage.XMSF,
-        hasModification = settings.superIslandWhitelistDisabled,
+        hasModification = (!settings.disableMediaIslandHooks && settings.superIslandWhitelistDisabled),
         isActive = framework.isActive(ModuleScopePackage.XMSF),
     ),
     ScopeStatus(
@@ -1082,7 +1086,7 @@ private fun HomeDashboardPage(
     }
     if (selectedSection == 0) {
         SettingsSection {
-            NavigationSettingItem("底栏柔光玻璃参数调节", "预览、模糊度、高级参数与底栏抬高", onClick = { onNavigate(SettingsDestination.NavigationGlass) })
+            NavigationSettingItem("底栏柔光玻璃参数调节", "预览与自定义", onClick = { onNavigate(SettingsDestination.NavigationGlass) })
         }
         SettingsSection {
             NavigationSettingItem("小米运动健康", "", onClick = { onNavigate(SettingsDestination.XiaomiHealth) }, leadingContent = { HomeAppIcon(ModuleScopePackage.XIAOMI_HEALTH) })

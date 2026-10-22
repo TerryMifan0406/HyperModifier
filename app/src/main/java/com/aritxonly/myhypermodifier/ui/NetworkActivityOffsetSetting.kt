@@ -56,7 +56,7 @@ internal fun NetworkActivityOffsetSetting(
         DeadlinerMiuixDialog(
             show = true,
             title = label,
-            summary = "输入 −${display(limit)}～${display(limit)} dp，可输入比 ${display(step)} dp 更精细的小数。",
+            summary = "范围：−${display(limit)}～${display(limit)} dp",
             onDismissRequest = { editing = false },
         ) {
             Column(Modifier.fillMaxWidth()) {

@@ -1,5 +1,5 @@
 <resources>
-  <string name="settings_advanced_material_advanced_summary">调整会实时反映在上方预览，松手后应用到底栏材质。</string>
+  <string name="settings_advanced_material_advanced_summary">实时预览，松手应用。</string>
   <string name="settings_advanced_material_base_parameters">基础材质</string>
   <string name="settings_advanced_material_blur_size">模糊大小</string>
   <string name="settings_advanced_material_brightness">亮度</string>

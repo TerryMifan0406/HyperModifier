@@ -1,5 +1,8 @@
 # 项目文档
 
+- [1.5.3 更新日志](../RELEASE_NOTES_v1.5.3.md)
+- [1.5.3 发布候选检查](testing/RELEASE_1.5.3_CHECKLIST.md)
+
 - [1.5.2 官改系统作者分享说明](sharing/HYPERMODIFIER_1.5.2_ROM_AUTHOR.md)
 - [1.5.2 更新日志](../RELEASE_NOTES_v1.5.2.md)
 - [1.5.2 发布检查](testing/RELEASE_1.5.2_CHECKLIST.md)

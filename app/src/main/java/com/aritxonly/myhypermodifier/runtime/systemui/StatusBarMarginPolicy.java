@@ -13,11 +13,18 @@ final class StatusBarMarginPolicy {
     }
 
     int[] resolve(int currentLeft, int currentRight, float leftDp, float rightDp, float density) {
+        resolveInPlace(currentLeft, currentRight, leftDp, rightDp, density);
+        return new int[]{appliedLeft, appliedRight};
+    }
+
+    int left() { return appliedLeft; }
+    int right() { return appliedRight; }
+
+    void resolveInPlace(int currentLeft, int currentRight, float leftDp, float rightDp, float density) {
         if (currentLeft != appliedLeft) baseLeft = currentLeft;
         if (currentRight != appliedRight) baseRight = currentRight;
         appliedLeft = baseLeft + Math.round(bounded(leftDp) * density);
         appliedRight = baseRight + Math.round(bounded(rightDp) * density);
-        return new int[]{appliedLeft, appliedRight};
     }
 
     private static float bounded(float dp) {

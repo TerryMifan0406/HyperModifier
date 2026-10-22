@@ -146,3 +146,42 @@ MiuiBatteryMeterView (LinearLayout)
 静态几何估算：普通闪电上下各穿出电池主体约 0.34 dp，快充约 0.29 dp；含镂空间隙的范围仍在 28 × 20 View 内。路径生成仍仅在缓存初始化时发生，没有新增每帧计算、绘制次数、绘制层、对象分配、Hook、IPC 或定时任务。尺寸与裁切检查属于静态验证，尚无本轮真机外观与性能测量。
 
 本轮验证：普通/快充原版路径逐字一致检查、静态上下穿出与 View 范围检查通过；390 项 JVM 测试通过（0 失败/错误/跳过），Release 构建、APK 签名及 `git diff --check` 通过。测试包：`app/build/outputs/apk/release/HyperModifier-v1.5.2-battery-bolt110-quick105.apk`。静态深浅色预览见 `reference/systemui-4.0.4.0/battery-analysis/bolt110-quick105-preview.png`。尚未进行本轮真机验证。
+
+## 2026-10-22 控制中心展开时外显电量
+
+新增独立设置：状态栏 → 状态栏电池 → 控制中心展开时外显电量，默认关闭。键 `control_center_show_battery_percent` 已接入模型、预设复位、持久化、设置 Bundle/备份与 SystemUI 修改状态标识，不依赖实心框开关。
+
+静态依据：`MiuiBatteryControllerImpl` 向 BatteryStateChangeCallback 分发 `updateControlCenterExpandState(boolean)`，新建 View 注册 callback 时也会收到当前展开状态。`MiuiBatteryMeterView` 保存为 `mIsControlCenterExpanding`。该类的 `updateChargeAndText`、`onMeasure`、`onLayout` 都按有效 `mBatteryStyle == 3` 处理原生外部百分比，因此仅把百分比容器设为 visible 不足以保证正确测量与排版。
+
+实现通过五个专用方法 Hook（attach、detach、展开状态、电池样式、文本刷新），仅在功能启用、控制中心展开、非 AOD 且当前原生有效样式为 0（图形电池且隐藏数字）时，临时把 `mBatteryStyle` 改为 3，并调用系统 `updateChargeAndText`。复用原 TextView、百分号、取色、字体、测量、布局和充电标识策略，没有新建文字 View，也不改系统电池设置或 `mStoreRealStyle`。
+
+收起、关闭开关、停用模块、兼容模式或 detach 时恢复模块接管前的有效样式。系统电池样式回调执行前，先移除自己的临时覆盖，使系统仍能正确比较原始状态；回调后重新记录系统决策并按当前条件处理，避免把展开前的旧样式强行覆盖用户新选择。内部数字（1）、历史样式（2）、已外显（3）、超级岛临时样式及 AOD 等均尊重系统有效样式；其中若系统已自行把历史样式转为 0，则按实际显示状态处理。展开期间收到电量事件，系统原有文本更新继续生效。
+
+性能检查是静态结构审查：仅 SystemUI 中解析一次元数据，使用缓存 Field/MethodHandle；不 Hook 绘制、测量、布局或动画帧，不引入全局 View Hook、IPC、位图、绘制层或定时任务。只在实际覆盖状态变化（或原生回调跳过但需要纠正可见性）时重放系统文本刷新。设置通知合并入主队列，并比较有效启用值，无关设置不遍历 View。弱键表中的值只存原生状态整数和标志，不持有 View/Context。
+
+边界：其他模块若同时覆盖 `mBatteryStyle` 或完全替换这些方法，效果仍受 Hook 顺序影响；本实现只撤销自身接管的有效样式，不写 SharedPreferences 或系统设置。尚无本轮真机控制中心展开/收起、样式切换、重建、AOD、充电/性能组合、取色或功耗/帧率实测。
+
+验证结果：397 项 JVM 测试通过（0 失败/错误/跳过），包含新增的 7 项状态转换/恢复策略测试与默认关闭检查；Release lintVital、R8、构建及 APK v2 签名验证通过，`git diff --check` 通过。产物：`app/build/outputs/apk/release/HyperModifier-v1.5.2-control-center-battery-percent.apk`。尚未安装到真机验证，本次性能结论仅限结构审查。
+
+## 2026-10-22 修复展开后消失、收起时短暂出现
+
+用户真机反馈：控制中心展开后外显百分比短暂显示约两秒后消失，收起时也短暂出现。静态分析确认上一版状态依据有误：`MiuiBatteryControllerImpl$$ExternalSyntheticLambda0.accept` 仅在参数等于 `ControlCenterContent.ExpandState.EXPANDING` 时令 `mIsControlCenterExpanding=true`，`EXPANDED` 时反而为 false。这个布尔量描述过渡动画，不代表控制中心持续打开；关闭过渡同样会触发 EXPANDING。因此上一版在动画完成时撤销样式、收起动画时又重新接管，与两个现象均吻合。这里确认的是静态状态逻辑错误，没有把用户报告的“两秒”当成精确计时或真机 trace。
+
+移除旧的布尔状态 Hook，改为观察系统侧 `ControlCenterContainerController$onExpandChangeListener$1.onExpandStateChanged(ExpandState)` 的完整事件。在原方法发布 Flow 值前更新本模块的状态，保留最近的稳定阶段以区分两个方向：
+
+| 阶段序列 | 外显策略 |
+| --- | --- |
+| COLLAPSED → EXPANDING | 打开，显示 |
+| EXPANDING → EXPANDED | 保持显示，不再次重放 UI |
+| EXPANDED → EXPANDING | 收起，恢复隐藏 |
+| EXPANDING → COLLAPSED | 保持隐藏 |
+| 打开取消 → COLLAPSED | 隐藏 |
+| 收起取消 → EXPANDED | 恢复显示 |
+
+同时观察 onContentAttached / onContentDetached，初始化插件当前阶段及卸载时清理状态，避免 View/插件重建沿用过期状态。不改系统自身的动画布尔量、原 Flow 或原始电池样式设置。
+
+只在接管/恢复的实际切换时，使用 `MiuiBatteryMeterView.showView/hideView` 原生静态辅助方法取消百分比容器已有 alpha/blur 动画并同步显隐。这些方法已有 cancel + setTo + setVisibility 路径，避免旧的动画完成回调再延迟隐藏。Folme 尚未建立时仅对该容器同步设置 alpha/visibility；不新增全局 visibility Hook 或逐帧补偿。
+
+性能范围：新增的完整阶段与内容生命周期事件替代动画布尔事件，合计七个专用方法 Hook；没有逐帧 Hook、轮询、延时重试、IPC 或额外绘制层。只有显隐策略变化才遍历弱引用 View 表；系统原生显隐辅助方法在切换时有自身的短期对象分配，未宣称零分配或帧率/耗电改善。状态、样式、生命周期和原值恢复仍为缓存字段 / MethodHandle 与基本值，不强引用 View/Context 或插件对象。
+
+修复验证：402 项 JVM 测试通过（0 失败/错误/跳过），新增五项完整状态转换及与有效样式覆盖联动回归，覆盖动画结束持续显示、关闭动画不重现、开关动画取消、内容重建及两个旧布尔量反向场景。Release lintVital、R8、构建与 APK v2 签名验证、`git diff --check` 均通过。测试包 `app/build/outputs/apk/release/HyperModifier-v1.5.2-control-center-battery-state-fix.apk`。尚未进行修复后的真机回归。

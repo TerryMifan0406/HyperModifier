@@ -32,7 +32,7 @@ final class DynamicIslandGlassHooks {
     private DynamicIslandGlassHooks() {}
 
     static void install(XposedModule module, ClassLoader loader) {
-        if (ModuleSettings.disableShadeGlassHooks || !INSTALLED.compareAndSet(false, true)) return;
+        if (ModuleSettings.disableMediaIslandHooks || ModuleSettings.disableShadeGlassHooks || !INSTALLED.compareAndSet(false, true)) return;
         try {
             // Resolve once using the real plugin loader, outside ClassLoader.loadClass's monitor.
             Class<?> content = Class.forName(CONTENT, false, loader);
@@ -56,7 +56,7 @@ final class DynamicIslandGlassHooks {
             module.hook(update).setId("dynamic-island-expanded-glass-radius")
                     .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
                     .intercept(chain -> {
-                        if (ModuleSettings.disableShadeGlassHooks) return chain.proceed();
+                        if (ModuleSettings.disableMediaIslandHooks || ModuleSettings.disableShadeGlassHooks) return chain.proceed();
                         Object target = chain.getArg(0);
                         if (!(target instanceof View)) return chain.proceed();
                         View view = (View) target;

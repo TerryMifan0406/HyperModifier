@@ -13,7 +13,8 @@ final class ControlCenterAppearance {
     }
 
     static float cornerPixels(Object receiver, ControlCenterSurface surface, float fallback) {
-        if (!ModuleSettings.controlCenterEnabled) {
+        if (!ModuleSettings.controlCenterEnabled
+                || (ModuleSettings.disableMediaIslandHooks && surface == ControlCenterSurface.MEDIA)) {
             return fallback;
         }
         Resources resources = receiver instanceof View
@@ -49,7 +50,7 @@ final class ControlCenterAppearance {
         }
         ControlCenterSurface surface = drawableSurface(
                 ResourceOverrides.resourceEntryName(resources, resourceId));
-        if (surface == null) {
+        if (surface == null || (ModuleSettings.disableMediaIslandHooks && surface == ControlCenterSurface.MEDIA)) {
             return;
         }
         float pixels = controlCenterRadius(surface) * resources.getDisplayMetrics().density;

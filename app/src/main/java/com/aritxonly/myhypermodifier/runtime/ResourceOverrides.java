@@ -13,6 +13,7 @@ final class ResourceOverrides {
 
     /** Applies every requested dimension regardless of dimen qualifier selection. */
     static Float replacementDimension(Resources resources, int resourceId) {
+        if (ModuleSettings.disableMediaIslandHooks && PluginHooks.preservingMediaDrawable()) return null;
         String name = resourceEntryName(resources, resourceId);
         if (name == null) {
             return null;
@@ -39,20 +40,21 @@ final class ResourceOverrides {
                 dp = ModuleSettings.miLinkMainCardRadius;
                 break;
             case "qs_media_session_height_expanded":
+                if (ModuleSettings.disableMediaIslandHooks) return null;
                 int presetHeight = ModuleSettings.activeMediaPresetHeight();
                 if (presetHeight > 0) {
                     dp = presetHeight;
                     break;
                 }
-                if (!ModuleSettings.mediaEnabled) return null;
+                if (ModuleSettings.disableMediaIslandHooks || !ModuleSettings.mediaEnabled) return null;
                 dp = ModuleSettings.expandedHeight;
                 break;
             case "qs_media_session_height_collapsed":
-                if (!ModuleSettings.mediaEnabled) return null;
+                if (ModuleSettings.disableMediaIslandHooks || !ModuleSettings.mediaEnabled) return null;
                 dp = ModuleSettings.collapsedHeight;
                 break;
             case "qs_media_session_height_expanded_fullAod":
-                if (!ModuleSettings.mediaEnabled) return null;
+                if (ModuleSettings.disableMediaIslandHooks || !ModuleSettings.mediaEnabled) return null;
                 dp = ModuleSettings.fullAodHeight;
                 break;
             // These names belong to the generic Super Island pull-down handle, not to media.
@@ -60,7 +62,7 @@ final class ResourceOverrides {
             case "mini_window_bar_width":
             case "mini_window_bar_height":
             case "min_window_blur_radius":
-                if (!ModuleSettings.superIslandHidePullBar) return null;
+                if (ModuleSettings.disableMediaIslandHooks || !ModuleSettings.superIslandHidePullBar) return null;
                 dp = 0f;
                 break;
             default:
@@ -71,7 +73,7 @@ final class ResourceOverrides {
 
     /** Prevent the bar from being drawn via a color lookup when it is hidden. */
     static Integer replacementColor(Resources resources, int resourceId) {
-        if (!ModuleSettings.superIslandHidePullBar) return null;
+        if (ModuleSettings.disableMediaIslandHooks || !ModuleSettings.superIslandHidePullBar) return null;
         String name = resourceEntryName(resources, resourceId);
         return "mini_window_bar_color".equals(name) ? Color.TRANSPARENT : null;
     }

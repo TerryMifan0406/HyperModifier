@@ -99,6 +99,7 @@ final class ShadeCardGlassHooks {
                             return chain.proceed();
                         }
                         View view = (View) viewObject;
+                        if (MediaIslandGate.protectedView(view)) return chain.proceed();
                         if (!isLoaded()) markLoaded(view.getContext());
                         float[] original = (float[]) values;
                         Object[] focusRecipe = FocusNotificationGlassTintHooks.rewrite(view, original);

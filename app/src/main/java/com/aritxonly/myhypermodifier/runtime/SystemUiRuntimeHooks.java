@@ -182,13 +182,13 @@ final class SystemUiRuntimeHooks {
             tryInstallSystemUiPart("锁屏密码壁纸", () ->
                     new LockscreenHooks(module).installLockscreenPasswordWallpaperRatioHook(classLoader));
         }
-        boolean retryLateClasses = !tryInstallKnownClass(
+        boolean retryLateClasses = !disableMediaIslandHooks && !tryInstallKnownClass(
                 "androidx.constraintlayout.widget.ConstraintSet", classLoader);
-        retryLateClasses |= !tryInstallKnownClass(
+        retryLateClasses |= !disableMediaIslandHooks && !tryInstallKnownClass(
                 "com.android.systemui.statusbar.notification.mediacontrol."
                         + "MiuiMediaViewControllerImpl", classLoader);
-        retryLateClasses |= !tryInstallKnownClass(PLAYER_ISLAND_CONSTRAINT_LAYOUT, classLoader);
-        retryLateClasses |= !tryInstallKnownClass(MIUI_ISLAND_MEDIA_VIEW_BINDER, classLoader);
+        retryLateClasses |= !disableMediaIslandHooks && !tryInstallKnownClass(PLAYER_ISLAND_CONSTRAINT_LAYOUT, classLoader);
+        retryLateClasses |= !disableMediaIslandHooks && !tryInstallKnownClass(MIUI_ISLAND_MEDIA_VIEW_BINDER, classLoader);
         tryInstallSystemUiPart("悬浮通知玻璃效果", () -> installHeadsUpGlassEffectHooks(classLoader));
         tryInstallSystemUiPart("全局背景模糊", this::installGlobalBackgroundBlurHook);
         tryInstallSystemUiPart("控制中心 MiLink 背景", () ->
@@ -199,10 +199,12 @@ final class SystemUiRuntimeHooks {
         tryInstallSystemUiPart("锁屏指纹", () -> new LockscreenHooks(module).installLockscreenFingerprintHooks(classLoader));
         tryInstallSystemUiPart("锁屏凭据", () -> new LockscreenHooks(module).installLockscreenCredentialHooks(classLoader));
         tryInstallSystemUiPart("状态栏信号隐藏", () -> StatusBarNetworkVisibilityHooks.install(module, classLoader));
+        tryInstallSystemUiPart("圆润信号和 WLAN 图标", () -> RoundedNetworkIconHooks.install(module, classLoader));
         tryInstallSystemUiPart("状态栏信号及网速边距", () -> StatusBarNetworkMarginsHooks.install(module, classLoader));
         tryInstallSystemUiPart("桌面状态栏取色", () -> DesktopStatusBarHooks.install(module, classLoader));
         tryInstallSystemUiPart("状态栏显秒", () -> StatusBarClockSecondsHooks.install(module, classLoader));
         tryInstallSystemUiPart("无数字电池实心框", () -> StatusBarBatteryFrameHooks.install(module, classLoader));
+        tryInstallSystemUiPart("控制中心外显电量", () -> ControlCenterBatteryPercentHooks.install(module, classLoader));
         tryInstallSystemUiPart("状态栏网络类型", () -> StatusBarNetworkType.install(module, classLoader));
         if (retryLateClasses) SYSTEM_UI_HOOKS_INSTALLED.set(false);
     }
@@ -247,6 +249,7 @@ final class SystemUiRuntimeHooks {
 
     /** Installs only methods declared by a class that has already been returned by loadClass. */
     void installSystemUiHookForLoadedClass(String className, Class<?> loadedClass) {
+        if (disableMediaIslandHooks) return;
         try {
             if ("androidx.constraintlayout.widget.ConstraintSet".equals(className)) {
                 hookMediaConstraintSetLoad(loadedClass.getDeclaredMethod(
@@ -339,7 +342,7 @@ final class SystemUiRuntimeHooks {
             Object injector = row.getClass().getMethod("getInjector").invoke(row);
             if (injector == null) return;
             Object background = injector.getClass().getMethod("getBackgroundNormal").invoke(injector);
-            if (!(background instanceof View)) return;
+            if (!(background instanceof View) || MediaIslandGate.protectedView((View) background)) return;
             if (headsUpGlassParametersEnabled) {
                 Method setMiGlass = View.class.getMethod("setMiGlass", float[].class);
                 setMiGlass.invoke(background, (Object) headsUpGlassParameters(dark));
@@ -369,6 +372,7 @@ final class SystemUiRuntimeHooks {
                         Object receiver = chain.getThisObject();
                         Object argument = chain.getArg(0);
                         if (!(receiver instanceof View) || !(argument instanceof Integer)
+                                || MediaIslandGate.protectedView((View) receiver)
                                 || !isGlobalBackgroundBlurTarget((View) receiver)) {
                             return chain.proceed();
                         }
@@ -806,6 +810,7 @@ final class SystemUiRuntimeHooks {
             module.hook(method).setId("media-island-main-and-dummy-height")
                     .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
                     .intercept(chain -> {
+                        if (disableMediaIslandHooks) return chain.proceed();
                         Object result = chain.proceed();
                         ensureLoaded();
                         synchronizeMediaIslandHolder(chain.getArg(0));
@@ -833,6 +838,7 @@ final class SystemUiRuntimeHooks {
             module.hook(method).setId("full-aod-actions")
                     .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
                     .intercept(chain -> {
+                        if (disableMediaIslandHooks) return chain.proceed();
                         ensureLoaded();
                         inFullAod = (Boolean) chain.getArg(0);
                         Object result = chain.proceed();
@@ -852,6 +858,7 @@ final class SystemUiRuntimeHooks {
             module.hook(method).setId("full-aod-seamless-visibility")
                     .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
                     .intercept(chain -> {
+                        if (disableMediaIslandHooks) return chain.proceed();
                         Object result = chain.proceed();
                         setAodSeamlessVisibility(chain.getThisObject(), inFullAod);
                         return result;
@@ -868,6 +875,7 @@ final class SystemUiRuntimeHooks {
             module.hook(method).setId("media-seekbar-style")
                     .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
                     .intercept(chain -> {
+                        if (disableMediaIslandHooks) return chain.proceed();
                         if (islandProgressBar) replaceNormalSeekBar(chain.getArg(0));
                         Object result = chain.proceed();
                         if (islandProgressBar) configureSeekBar(chain.getArg(0));

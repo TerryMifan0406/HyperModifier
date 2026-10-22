@@ -20,6 +20,7 @@ final class SpotifyMediaCardBinding {
     private SpotifyMediaCardBinding() {}
 
     static void install(XposedModule module, ClassLoader loader) throws ReflectiveOperationException {
+        if (ModuleSettings.disableMediaIslandHooks) return;
         Class<?> controller = Class.forName(
                 "com.android.systemui.statusbar.notification.mediacontrol.MiuiMediaViewControllerImpl", false, loader);
         Class<?> data = Class.forName("com.android.systemui.media.controls.shared.model.MediaData", false, loader);
@@ -41,7 +42,7 @@ final class SpotifyMediaCardBinding {
     private static boolean enabled(Object data) {
         try {
             ModuleSettings.ensureLoaded();
-            return ModuleSettings.moduleHooksEnabled
+            return !ModuleSettings.disableMediaIslandHooks && ModuleSettings.moduleHooksEnabled
                     && (ModuleSettings.spotifyFavoriteButtonEnabled || ModuleSettings.spotifyShuffleButtonEnabled)
                     && "com.spotify.music".equals(read(data, "packageName"));
         } catch (ReflectiveOperationException error) {

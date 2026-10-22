@@ -36,52 +36,63 @@ inline bool validWidgetRule(const std::string &rule) {
 }
 class WidgetGlassRules {
     std::unordered_set<std::string> targets;
+    std::unordered_set<std::string> excluded;
 public:
     bool parse(const std::string &encoded) {
         if (encoded.size() > 16384) return false;
         std::unordered_set<std::string> next;
+        std::unordered_set<std::string> nextExcluded;
         std::istringstream stream(encoded); std::string rule;
         while (std::getline(stream, rule)) {
             if (!validWidgetRule(rule)) return false;
-            next.insert(rule);
+            if (rule[0] == '-') nextExcluded.insert(rule.substr(1));
+            else next.insert(rule);
         }
-        targets = std::move(next); return true;
+        targets = std::move(next); excluded = std::move(nextExcluded); return true;
     }
     bool matches(const WidgetIdentity &identity) const {
-        return identity.valid() && !targets.count("-" + identity.package) && !targets.count("-" + identity.component)
+        return identity.valid() && !excluded.count(identity.package) && !excluded.count(identity.component)
             && (targets.count("*") || targets.count(identity.package) || targets.count(identity.component));
     }
 };
 class WidgetStyleRules {
     std::unordered_map<std::string, int> styles;
+    std::unordered_map<std::string, std::unordered_map<int, int>> instances;
 public:
     bool parse(const std::string &encoded) {
         if (encoded.size() > 16384) return false;
         std::unordered_map<std::string, int> next;
+        std::unordered_map<std::string, std::unordered_map<int, int>> nextInstances;
         std::istringstream stream(encoded); std::string line;
         while (std::getline(stream, line)) {
             size_t tab = line.find('\t');
             if (tab == std::string::npos || tab + 2 != line.size() || line.back() < '0' || line.back() > '3') return false;
             std::string target = line.substr(0, tab), component = target;
             size_t hash = target.find('#');
+            int instanceId = 0;
             if (hash != std::string::npos) {
                 component = target.substr(0, hash); std::string id = target.substr(hash + 1);
                 if (id.empty() || id.front() < '1' || id.front() > '9' || id.size() > 10) return false;
                 uint64_t value = 0;
                 for (char c : id) { if (c < '0' || c > '9') return false; value = value * 10 + c - '0'; }
                 if (value > 2147483647 || component.find('/') == std::string::npos) return false;
+                instanceId = static_cast<int>(value);
             }
             if (!validWidgetRule(component) || component == "*" || component.front() == '-'
                     || (line.back() == '3' && component.find('/') != std::string::npos)) return false;
-            next[target] = line.back() - '0';
+            if (instanceId) nextInstances[component][instanceId] = line.back() - '0';
+            else next[target] = line.back() - '0';
         }
-        styles = std::move(next); return true;
+        styles = std::move(next); instances = std::move(nextInstances); return true;
     }
     int resolve(const WidgetIdentity &identity, bool glass, bool clock) const {
         if (!identity.valid()) return 0;
         if (identity.appWidgetId > 0) {
-            auto entry = styles.find(identity.component + "#" + std::to_string(identity.appWidgetId));
-            if (entry != styles.end()) return entry->second;
+            auto provider = instances.find(identity.component);
+            if (provider != instances.end()) {
+                auto entry = provider->second.find(identity.appWidgetId);
+                if (entry != provider->second.end()) return entry->second;
+            }
         }
         auto provider = styles.find(identity.component);
         if (provider != styles.end()) return provider->second;
@@ -190,7 +201,9 @@ public:
     }
     void forgetBorrowed(void *bundle) {
         std::lock_guard<std::mutex> guard(mutex);
-        borrowed.erase(bundle);
+        // Most ActivityInfo/PackageItemInfo drops are unrelated to widgets.
+        // Only tracked borrowed bundles can have owner aliases to retire.
+        if (!borrowed.erase(bundle)) return;
         for (auto entry = owners.begin(); entry != owners.end();) {
             if (entry->second == bundle) entry = owners.erase(entry);
             else ++entry;
@@ -211,6 +224,13 @@ public:
         std::lock_guard<std::mutex> guard(mutex);
         auto entry = borrowed.find(bundle); if (entry != borrowed.end()) return entry->second.identity;
         auto clone = clones.find(bundle); return clone == clones.end() ? WidgetIdentity{} : clone->second;
+    }
+    bool hasIdentity(void *bundle) {
+        std::lock_guard<std::mutex> guard(mutex);
+        auto entry = borrowed.find(bundle);
+        if (entry != borrowed.end()) return entry->second.identity.valid();
+        auto clone = clones.find(bundle);
+        return clone != clones.end() && clone->second.valid();
     }
     bool selected(void *bundle) {
         std::lock_guard<std::mutex> guard(mutex);

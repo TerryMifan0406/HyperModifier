@@ -17,6 +17,7 @@ final class SuperIslandWhitelistHooks {
     private SuperIslandWhitelistHooks() {}
 
     static void installSystemUi(XposedModule module, ClassLoader loader) throws Exception {
+        if (ModuleSettings.disableMediaIslandHooks) return;
         Class<?> manager = Class.forName("com.miui.systemui.notification.NotificationSettingsManager", false, loader);
         Method gate = manager.getDeclaredMethod("isInSupportBlockFocusXmsList", String.class);
         if (gate.getReturnType() != boolean.class) throw new NoSuchMethodException("Unexpected Focus whitelist return type");
@@ -36,6 +37,7 @@ final class SuperIslandWhitelistHooks {
     }
 
     static void installXmsf(XposedModule module, ClassLoader loader) throws Exception {
+        if (ModuleSettings.disableMediaIslandHooks) return;
         Class<?> session = Class.forName("com.xiaomi.xms.auth.AuthSession", false, loader);
         Class<?> error = Class.forName("com.xiaomi.xms.auth.AuthError", false, loader);
         FocusAuthMethods methods = FocusAuthMethods.find(session, error, Bundle.class);
@@ -54,6 +56,6 @@ final class SuperIslandWhitelistHooks {
         } catch (Throwable failure) { INSTALLED.remove(methods.failure); throw failure; }
     }
     private static boolean enabled() {
-        return ModuleSettings.moduleHooksEnabled && ModuleSettings.superIslandWhitelistDisabled;
+        return !ModuleSettings.disableMediaIslandHooks && ModuleSettings.moduleHooksEnabled && ModuleSettings.superIslandWhitelistDisabled;
     }
 }

@@ -48,6 +48,7 @@ final class MediaIslandHostHooks {
     }
 
     static void install(XposedModule module, ClassLoader loader) {
+        if (ModuleSettings.disableMediaIslandHooks) return;
         try {
             installLoaded(module, Class.forName(CONTENT_CLASS, false, loader));
         } catch (Throwable error) {
@@ -61,6 +62,7 @@ final class MediaIslandHostHooks {
     }
 
     static void installLoaded(XposedModule module, Class<?> type) throws Exception {
+        if (ModuleSettings.disableMediaIslandHooks) return;
         for (Method method : type.getDeclaredMethods()) {
             if ("setMiniBar".equals(method.getName())
                     && method.getParameterCount() == 1
@@ -177,7 +179,7 @@ final class MediaIslandHostHooks {
     private static void updatePullBar(View bar) {
         if (bar == null) return;
         PullBarState original = ORIGINAL_PULL_BARS.get(bar);
-        if (ModuleSettings.superIslandHidePullBar) {
+        if (!ModuleSettings.disableMediaIslandHooks && ModuleSettings.superIslandHidePullBar) {
             if (original == null) {
                 original = new PullBarState(bar);
                 ORIGINAL_PULL_BARS.put(bar, original);
@@ -208,6 +210,7 @@ final class MediaIslandHostHooks {
     }
 
     static void installExpandedLoaded(XposedModule module, Class<?> type) throws Exception {
+        if (ModuleSettings.disableMediaIslandHooks) return;
         for (Method method : type.getDeclaredMethods()) {
             if (!method.getName().startsWith("setContentView$")
                     || method.getParameterCount() != 1
@@ -257,7 +260,7 @@ final class MediaIslandHostHooks {
     }
 
     private static int contentMarginPx(View view) {
-        if (!ModuleSettings.superIslandContentBottomMarginEnabled) return 0;
+        if (ModuleSettings.disableMediaIslandHooks || !ModuleSettings.superIslandContentBottomMarginEnabled) return 0;
         return Math.round(ModuleSettings.superIslandContentBottomMarginDp
                 * view.getResources().getDisplayMetrics().density);
     }
