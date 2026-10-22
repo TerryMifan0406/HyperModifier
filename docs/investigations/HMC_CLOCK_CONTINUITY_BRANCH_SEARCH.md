@@ -178,3 +178,68 @@ OFF/ENTER/ON/EXIT/AOD，未得到桌面目标交接的实现证据。因此不�
 
 本次仍仅调研与文档，无运行时代码、Hook、设置或作用域变化；不运行构建/测试来
 冒充功能验证，也无设备操作和性能测量。
+
+## 作者排除主线后：两个 ColorOS 分支的定向审查
+
+用户转述作者明确排除主线、Releases 和 Nightly，并要求重点看 ColorOS 相关的两个
+分支。因此后续不再用主线夜版当作演示候选。重点核对：
+
+- `claude/awesome-gauss-d5h8il`，`b8cc1656e4f3988c0aa16318a0324e61c3380514`；
+- `claude/zen-cannon-m7khd8`，`8e1058690bd4493dc957d29edf621fe4a9090eb5`。
+
+本轮用认证的只读 GitHub API 重新获取分支 HEAD，仍是此前列出的 8 个分支。
+从本地 Git 对象导出全部 7 个非主线分支到临时目录，检查仓库目录、时钟路径、
+窗口/Surface 使用及 Probe 入口，而不只按“桌面”“一镜到底”字面筛选。
+工作区有其他电池功能的未提交修改，本轮未修改或提交那些文件。
+
+### 两个 ColorOS 分支共用同一份时钟实现
+
+`git diff` 验证两分支的 ClockCollapse.java、LockHold.java 没有差异；
+SHA256 前 16 位分别为 `fdb7d63a11d10c96`、`ddf66ae3f1d795dc`。
+PageSpring.java 也相同（`382e92f669c0172f`）。Main.java 的差别是 8 行高德
+AmapFocus/公交地铁 Probe 入口，ImmersiveHost 多 3 行注册 AmapTransitScene；
+不是两套不同的时钟退出实现。
+
+阅读的关键调用链（行号使用 zen 分支快照）：
+
+1. `LockHold.take:68` / `give:83`：COVER 和 IMMERSIVE owner 的并集决定时钟
+   是否保持收缩；由 ClockCollapse.enter/exit 接管，不是桌面目标的 owner。
+2. `Main.applyY:3161`：通过已缓存的 notifStateChange Method 写入 notifY，
+   `isDragOrFling=true` 使 OEM 直接应用当帧值，不额外启动第二套 Folme 动画。
+3. `ClockCollapse` 文件说明及 frame/writePose：notifY 让 OEM 改变原生可变字体
+   的高度、宽度和字重；姿态由实时 ink box 映射控制。`onGlyphDrawn:1576` 在
+   原文字绘制后发现边界变化时重新摆放，避免始终使用上一帧测量。
+4. `writePose:1994`：unit/m.unit 得到等比缩放，按 ink top 定位，日期单独跟随。
+   但 holdWidth 的字形尾帧还有临时 X 轴收窄，不能概括为所有阶段都严格等比。
+5. `Main:3038—3074`：USER_PRESENT 取消封面副本、隐藏 CoverCardLayer，最后调用
+   ClockCollapse.release(a)。`release:597` 直接进入 `releaseNow:1453`，停止帧
+   回调、移除 pre-draw、清空姿态和 hold、恢复材质；未见桌面终点续存状态。
+6. `ImmersiveHost.onUnlocked:525`：启动沉浸页面释放倒计时，不是保留时钟直到
+   桌面接手。PageSpring 的 ColorOS 对应关系是沉浸地图/倒计时页面的 Surface
+   入场曲线，不能因此当作 ColorOS 锁屏到桌面时钟的一镜到底代码。
+
+同样检查了 anim、oemtrans、hold/release、callclock、clockshot 等 Probe 分支：
+分别是配置/位移报告、原生压缩调试、反射调用和设置预览采样开关，未定位专门的
+解锁到桌面时钟演示入口。不在手机运行这些命令。
+
+### 可借鉴部分与尚缺的实现
+
+这两个分支提供了有源码依据的“原字体变形 + 实时字形边界跟随”底座，和视频
+的视觉特征相容；它们能为后续扩展设计提供依据，不能单凭相容就认定找到演示版。
+尚未定位的关键仍是：跨过锁屏窗口退出继续显示时钟、桌面目标的坐标/字体参数、
+交接时隐藏或显现的时序，以及取消/重新锁屏/无目标场景的恢复。
+
+性能审查发现：原版 onGlyphDrawn 的 Xp.callMethod/getTextBoundsWithPosition 在
+高频路径，WeakHashMap<View, Float> 会对高度装箱；字形变化还可能在同一帧重入
+frame。clockRoots 已缓存完整容器对，重建或未解析完整时重查，不能声称每帧都
+全树扫描。不能把上游整个 Probe/记录与重绘机制原样搬进扩展，也不能把临时
+X 轴收窄当作用户要求的原生字体轴调整。这里只做静态审查，无帧时间或功耗测量。
+
+两个分支本身均带 AGPL-3.0 LICENSE/NOTICE。若实际采用其中实现，独立扩展需保留
+对应声明；单独安装和隐藏入口只是技术交付边界，不构成免除授权要求的保证。
+
+固定源码：
+- [awesome 的 ClockCollapse](https://github.com/zyl6932/HyperMusicCover/blob/b8cc1656e4f3988c0aa16318a0324e61c3380514/app/src/main/java/com/os4/musiccover/ClockCollapse.java)
+- [zen 的 ClockCollapse](https://github.com/zyl6932/HyperMusicCover/blob/8e1058690bd4493dc957d29edf621fe4a9090eb5/app/src/main/java/com/os4/musiccover/ClockCollapse.java#L1576)
+- [zen 的 Main.applyY](https://github.com/zyl6932/HyperMusicCover/blob/8e1058690bd4493dc957d29edf621fe4a9090eb5/app/src/main/java/com/os4/musiccover/Main.java#L3161)
+- [zen 的解锁收尾](https://github.com/zyl6932/HyperMusicCover/blob/8e1058690bd4493dc957d29edf621fe4a9090eb5/app/src/main/java/com/os4/musiccover/Main.java#L3074)
