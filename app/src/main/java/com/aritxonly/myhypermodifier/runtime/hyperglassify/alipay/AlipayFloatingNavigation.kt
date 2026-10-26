@@ -118,6 +118,7 @@ internal object AlipayFloatingNavigation {
         nativeBarVisible = { bars[it]?.let { session -> session.foreground && session.classic } == true },
         resolveDarkTheme = { activity, _, _ -> sessions[activity]?.dark },
         nativeRefreshIntervalMs = 100L,
+        stableNavigationInset = true,
         // Same-window retained display list, as used by Douyin/Spotify. Never read pixels back.
         useNativeGpuBackdrop = true,
         resolveGpuSource = { bars[it]?.content?.get() },

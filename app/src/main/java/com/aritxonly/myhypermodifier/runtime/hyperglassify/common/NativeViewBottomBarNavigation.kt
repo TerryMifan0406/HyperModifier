@@ -107,7 +107,9 @@ internal data class NativeViewBottomBarTarget(
     val onNavigationBoundsChanged: (Activity, ViewBackdropBounds) -> Unit = { _, _ -> },
     val lateAttachWindowMs: Long = 8_000L,
     val onAttachDiagnostic: (String) -> Unit = {},
-    val nativeRefreshIntervalMs: Long = 0L,
+    // Native labels and badges rarely change without a click. Cap safety scans independently of
+    // the host's animation frame rate; explicit actions still force an immediate refresh.
+    val nativeRefreshIntervalMs: Long = 100L,
     val useHardwareBackdrop: Boolean = false,
     val useNativeGpuBackdrop: Boolean = false,
     val useVideoSurfaceBackdrop: Boolean = false,
@@ -322,6 +324,7 @@ private class NativeViewBottomBarHost private constructor(
     ) { backdropSnapshot = it }
     private val refreshPolicy = NavigationRefreshPolicy(target.nativeRefreshIntervalMs)
     private var foreground = true
+    private var disposed = false
     private val stableNavigationInset = StableNavigationBarInset()
     private val iconSnapshotter = NativeTabIconSnapshotter(activity.resources, activity.theme)
     private val trimmedIconCache = WeakHashMap<View, TrimmedNativeIconEntry>()
@@ -340,6 +343,7 @@ private class NativeViewBottomBarHost private constructor(
     private var replacingNativeChrome = false
     private var nativeBarSuppressed = false
     private var nativeTabsReady = false
+    private var cachedBadgeIds: Set<Int>? = null
     private val composeLayoutListener = View.OnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
         val contentInset = view.injectedNavigationContentInsetPx()
         if (replacingNativeChrome && applyContentPadding(contentInset)) {
@@ -347,6 +351,7 @@ private class NativeViewBottomBarHost private constructor(
         }
     }
     private val preDrawListener = ViewTreeObserver.OnPreDrawListener {
+        if (disposed) return@OnPreDrawListener true
         syncNativeState()
         if (gpuBackdrop == null && !target.inTreeOverlay && state.sampleBackdrop) sampler?.onFrame()
         true
@@ -411,20 +416,26 @@ private class NativeViewBottomBarHost private constructor(
     }
 
     fun setForeground(value: Boolean) {
+        if (disposed) return
         foreground = value
         refresh()
     }
 
     fun invalidateContentPadding() = contentPaddingPolicy.invalidate()
 
-    fun refresh() = syncNativeState(force = true)
+    fun refresh() {
+        if (!disposed) syncNativeState(force = true)
+    }
 
     fun isReplacing(view: View): Boolean = view === nativeBottomBar && nativeBarSuppressed
 
     fun dispose() {
+        if (disposed) return
+        disposed = true
         target.onChromeReplacement(activity, false)
         visibility.dispose()
         sampler?.dispose()
+        composeView.removeCallbacks(null)
         videoSampler?.dispose()
         gpuBackdrop?.dispose()
         if (!target.refreshContentPaddingEverySync) contentHost?.removeOnLayoutChangeListener(contentLayoutListener)
@@ -447,6 +458,7 @@ private class NativeViewBottomBarHost private constructor(
     }
 
     private fun syncNativeState(force: Boolean = false) {
+        if (disposed) return
         // Cheap visibility checks run on every frame even when native-tab synchronization is capped.
         // This prevents a low-frequency state refresh from covering an ad's skip target for a frame.
         if (!foreground || !target.enabled() || !nativeBottomBar.isVisibleIgnoringAlpha() || !target.nativeBarVisible(nativeBottomBar) ||
@@ -544,11 +556,13 @@ private class NativeViewBottomBarHost private constructor(
         )
     }
 
-    private fun badgeViewIds(): Set<Int> = nativeBottomBar.descendantsAndSelf()
+    private fun badgeViewIds(): Set<Int> = cachedBadgeIds ?: nativeBottomBar.descendantsAndSelf()
+        .asSequence()
         .filter { it.looksLikeBadge() }
         .map(View::getId)
         .filter { it != View.NO_ID }
         .toSet()
+        .also { cachedBadgeIds = it }
 
     private fun View.hasVisibleBadge(icon: ImageView?): Boolean {
         val reflectedBadge = invokeNoArg("getRedDotView") as? View
@@ -565,7 +579,7 @@ private class NativeViewBottomBarHost private constructor(
         if (enabled || retain) {
             if (!replacingNativeChrome) {
                 replacingNativeChrome = true
-                if (target.manageWindowImmersion) windowImmersion.apply()
+                if (target.manageWindowImmersion) windowImmersion.apply(composeView)
             }
             if (target.manageWindowImmersion) windowImmersion.ensureApplied()
             target.onChromeReplacement(activity, true)
@@ -632,11 +646,12 @@ private class NativeViewBottomBarHost private constructor(
     }
 
     private fun selectDestination(index: Int) {
+        if (disposed) return
         val tab = nativeTabViews().getOrNull(index) ?: return
         if (index != state.selectedIndex) sampler?.invalidateSamplingContext()
         if (!target.isDetachedAction(tab, index)) state = state.copy(selectedIndex = index)
         target.onNativeTabClick(tab)
-        tab.post { syncNativeState(force = true) }
+        tab.post { if (!disposed) syncNativeState(force = true) }
         sampler?.requestCaptureBurst()
     }
 
