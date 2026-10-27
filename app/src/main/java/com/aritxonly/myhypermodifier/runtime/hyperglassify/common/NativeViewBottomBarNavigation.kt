@@ -94,7 +94,7 @@ internal data class NativeViewBottomBarTarget(
     val resolveContentHost: ((View) -> View?)? = null,
     val refreshContentPaddingEverySync: Boolean = true,
     val selectedIndexMethodName: String? = null,
-    val resolveSelectedIndex: ((View, List<View>) -> Int)? = null,
+    val resolveSelectedIndex: ((View, List<View>) -> Int?)? = null,
     val tabVisible: (String, Int) -> Boolean = { _, _ -> true },
     val isDetachedAction: (View, Int) -> Boolean = { _, _ -> false },
     val onNativeTabClick: (View) -> Unit = { it.performClick() },
@@ -102,7 +102,7 @@ internal data class NativeViewBottomBarTarget(
     val contentHostResourceName: String? = null,
     val overlayAllowed: (Activity) -> Boolean = { true },
     val nativeBarVisible: (View) -> Boolean = { true },
-    val resolveDarkTheme: ((Activity, List<View>, Int) -> Boolean?)? = null,
+    val resolveDarkTheme: ((Activity, View, List<View>, Int) -> Boolean?)? = null,
     val sampleBackdropForTabs: (List<View>, Int) -> Boolean = { _, _ -> true },
     val onNavigationBoundsChanged: (Activity, ViewBackdropBounds) -> Unit = { _, _ -> },
     val lateAttachWindowMs: Long = 8_000L,
@@ -254,6 +254,17 @@ internal class NativeViewBottomBarNavigation(
 
     fun refresh(activity: Activity) {
         hosts[activity]?.get()?.refresh()
+    }
+
+    fun hasHost(activity: Activity): Boolean = hosts[activity]?.get() != null
+
+    fun hasNavigationTarget(activity: Activity): Boolean {
+        if (activity.isFinishing || activity.isDestroyed) return false
+        return runCatching {
+            val root = activity.window.decorView
+            target.resolveBottomBar?.invoke(root)
+                ?: root.findDescendantByClassNames(target.bottomBarClassNames)
+        }.getOrNull() != null
     }
 
     private companion object {
@@ -503,7 +514,7 @@ private class NativeViewBottomBarHost private constructor(
             detachedAction = allTabs.getOrNull(actionIndex)?.takeIf {
                 target.tabVisible(it.label, it.nativeIndex)
             },
-            darkTheme = target.resolveDarkTheme?.invoke(activity, nativeTabs, selected),
+            darkTheme = target.resolveDarkTheme?.invoke(activity, nativeBottomBar, nativeTabs, selected),
             sampleBackdrop = target.sampleBackdropForTabs(nativeTabs, selected),
             navigationLiftDp = ModuleSettings.hyperGlassifyHiddenNavigationLift.coerceIn(0f, 48f),
             navigationInsetPx = if (target.stableNavigationInset) {
